@@ -1,0 +1,33 @@
+[project]
+name = "backend-tu-nuevo-hogar"
+version = "0.1.0"
+description = "Asistente inmobiliario por WhatsApp con RAG, function calling y capa de seguridad (Llama 3.1)"
+readme = "README.md"
+authors = [
+    { name = "Maximino Castillo", email = "maxcastgarcia@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.142.2",
+    "llama-stack-client>=0.7.5",
+    "numpy>=2",
+    "ollama>=0.6.3",
+    "sentence-transformers>=5.7",
+]
+
+[project.scripts]
+backend-tu-nuevo-hogar = "backend_tu_nuevo_hogar:main"
+backend-tu-nuevo-hogar-stack = "backend_tu_nuevo_hogar.stack:main"
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+stack = [
+    "llama-stack[starter]>=0.7.3",
+    "mcp<2.0",
+]
