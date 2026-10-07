@@ -30,6 +30,15 @@ def quitar_acentos(texto):
     return "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn")
 
 
+# Amenidades por las que se pregunta con si o no. El modelo contesta "si" cuando el resultado no las menciona,
+# asi que su ausencia se dice de forma explicita
+AMENIDADES_DESTACADAS = ("alberca", "gimnasio")
+
+
+def tiene_amenidad(desarrollo, amenidad):
+    return any(amenidad in a for a in desarrollo["amenidades"])
+
+
 def normalizar(texto):
     return quitar_acentos(texto.lower()).strip(" ¿?¡!.\"'")
 
@@ -56,7 +65,11 @@ class Catalogo:
 
     def consultar(self, nombre=None):
         if not nombre or not normalizar(nombre):
-            return "Condominios: " + " | ".join(self._resumir(d) for d in self.desarrollos)
+            destacadas = " ".join(
+                f"Con {a}: solo {', '.join(d['nombre'] for d in self.desarrollos if tiene_amenidad(d, a)) or 'ninguno'}."
+                for a in AMENIDADES_DESTACADAS
+            )
+            return "Condominios: " + " | ".join(self._resumir(d) for d in self.desarrollos) + " | " + destacadas
 
         nombre_norm = normalizar(nombre)
         encontrados = [
@@ -74,6 +87,9 @@ class Catalogo:
 
     def _detallar(self, desarrollo):
         promociones = " ".join(desarrollo["promociones"]) or "ninguna."
+        faltan = [a for a in AMENIDADES_DESTACADAS if not tiene_amenidad(desarrollo, a)]
+        # Al final del texto: en medio, el modelo lo pasa por alto
+        no_tiene = f" Importante: {desarrollo['nombre']} NO tiene {' ni '.join(faltan)}." if faltan else ""
         return (
             f"Condominio {desarrollo['nombre']} ({desarrollo['estado']}, entrega {desarrollo['entrega']}). "
             f"{desarrollo['descripcion']} Precio desde ${desarrollo['precio']:,} MXN. "
@@ -85,5 +101,5 @@ class Catalogo:
             f"Casa muestra: {desarrollo['casa_muestra']} "
             f"Apartado: ${desarrollo['apartado']:,} MXN. "
             f"Cuota de mantenimiento estimada: ${desarrollo['mantenimiento']:,} MXN al mes. "
-            f"Promociones vigentes: {promociones}"
+            f"Promociones vigentes: {promociones}{no_tiene}"
         )

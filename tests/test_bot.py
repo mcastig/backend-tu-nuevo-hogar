@@ -133,6 +133,9 @@ def test_catalogo_por_condominio():
     assert "$2,650,000 MXN" in catalogo.consultar("¿el condominio TULIPAN?")
     assert "quedan 9 disponibles" in catalogo.consultar("cempazuchil")  # alias sin acento y con otra ortografia
     assert "Promociones vigentes: ninguna." in catalogo.consultar("Cempasúchil")
+    assert catalogo.consultar("Bugambilia").endswith("Importante: Bugambilia NO tiene alberca ni gimnasio.")
+    assert "NO tiene" not in catalogo.consultar("Tulipán")
+    assert "Con alberca: solo Tulipán. Con gimnasio: solo Tulipán." in catalogo.consultar()
     comparacion = catalogo.consultar("Bugambilia o Jacaranda")
     assert "Condominio Bugambilia" in comparacion and "Condominio Jacaranda" in comparacion
     assert catalogo.consultar("Rayuela").startswith("No encontramos «Rayuela»")
