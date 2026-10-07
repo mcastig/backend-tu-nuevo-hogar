@@ -1,0 +1,21 @@
+# Usa el Ollama instalado en la maquina en lugar del contenedor. Es lo recomendable en macOS, donde Docker
+# no tiene acceso a la GPU y el modelo correria solo en CPU.
+#   docker compose -f compose.yaml -f compose.ollama-local.yaml up -d
+services:
+  ollama:
+    profiles: [ollama-en-contenedor]
+
+  ollama-pull:
+    profiles: [ollama-en-contenedor]
+
+  stack:
+    environment:
+      OLLAMA_HOST: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  app:
+    environment:
+      OLLAMA_HOST: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

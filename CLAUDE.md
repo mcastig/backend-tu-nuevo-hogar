@@ -15,7 +15,11 @@ Managed with `uv` (Python 3.12).
 - Run the webhook server: `uv run backend-tu-nuevo-hogar` (needs `.env`, see `.env.example`)
 - Run Llama Stack with the Ollama model registered: `uv run backend-tu-nuevo-hogar-stack`
 
+- Run everything in Docker: `docker compose up -d --build`; on macOS add `-f compose.yaml -f compose.ollama-local.yaml` to use the host's Ollama (no GPU inside Docker there)
+
 The server needs three processes: Ollama (`llama3.1:8b`, `llama-guard3`), Llama Stack on :8321, and the app on :8000. There is no linter or formatter configured.
+
+The `Dockerfile` has two targets built on shared dependency layers: `app` and `stack` (which adds the `stack` group). `compose.yaml` hardcodes the in-network URLs and the database path over whatever `.env` says, and passes `MODELO_CHAT` to the stack container, so the `.env` gotcha below does not apply there.
 
 ## Architecture
 

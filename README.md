@@ -61,7 +61,7 @@ Run everything from the project folder, each command in its own terminal, in thi
 4. **A tunnel**, because Meta only calls public HTTPS URLs. Any tunnel works; for example:
 
    ```bash
-   cloudflared tunnel --url http://localhost:8000
+   ngrok http 8000
    ```
 
 5. **The Callback URL in Meta.** In the Meta app, under WhatsApp → Configuration, set the Callback URL to `https://<tunnel-url>/webhook` with `VERIFY_TOKEN` as the verify token, and subscribe to the `messages` field. The bot must already be running, because Meta calls it to verify. A free tunnel gets a new URL on every restart, so repeat this step each time.
@@ -74,6 +74,89 @@ Run everything from the project folder, each command in its own terminal, in thi
 - **Replies stop arriving and the bot logs `whatsapp_api_error`:** the access token has probably expired. The temporary token from Meta's API Setup page lasts about 24 hours; put a new one in `.env` and restart the bot.
 - **Replies are slow:** the model runs on your machine, and each message makes several model calls (two safety checks, then one or two for the answer).
 - **You want a clean start:** conversations and metrics are kept in `data/` between runs. Stop the bot and delete `data/bot.sqlite3`.
+
+## Run with Docker
+
+Docker Compose runs Llama Stack and the app (and, on a server, Ollama too) as containers, so you do not need uv or Python installed. The app is published on `127.0.0.1:8000` only; Ollama and Llama Stack have no authentication and stay on the internal network.
+
+### Run locally with Docker
+
+These steps use the Ollama installed on your machine and run Llama Stack and the app in containers. That is the right setup on macOS, where Docker cannot use the GPU. Run everything from the project folder.
+
+1. **Requirements.** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and [Ollama](https://ollama.com), and start Docker Desktop.
+
+2. **Configuration.** Create `.env` and fill in the values (see Configuration).
+
+   ```bash
+   cp .env.example .env
+   ```
+
+3. **Ollama**, with both models. Leave `ollama serve` running in its own terminal; skip it if Ollama already runs as a service ("address already in use"). The pulls are only needed once.
+
+   ```bash
+   ollama serve
+   ollama pull llama3.1:8b
+   ollama pull llama-guard3
+   ```
+
+4. **Select the Compose files** for this terminal, so the commands below need no `-f` flags.
+
+   ```bash
+   export COMPOSE_FILE=compose.yaml:compose.ollama-local.yaml
+   ```
+
+5. **Build and start** Llama Stack and the app. The first build takes a few minutes, and the first start downloads the embedding model (and Prompt Guard if `HF_TOKEN` is set). The command returns when both containers are healthy.
+
+   ```bash
+   docker compose up -d --build --wait
+   ```
+
+6. **Check it.** Both services should show `healthy`, and the health endpoint should answer.
+
+   ```bash
+   docker compose ps
+   curl http://localhost:8000/health
+   ```
+
+7. **Open a tunnel**, because Meta only calls public HTTPS URLs. This adds an [ngrok](https://ngrok.com) tunnel as a container; it needs `NGROK_AUTHTOKEN` in `.env` (the authtoken from the ngrok dashboard, not an API key). The second command prints the public URL, which is also shown in ngrok's inspector at `http://localhost:4040`.
+
+   ```bash
+   docker compose --profile tunel up -d
+   docker compose logs tunel | grep -o 'url=https://[^ ]*'
+   ```
+
+8. **Set the Callback URL in Meta** to `https://<tunnel-url>/webhook`, as in step 5 of *Run locally*. If the URL changes after a restart, repeat this step.
+
+9. **Send a WhatsApp message** to the test number and follow the logs; the app logs `mensaje procesado ruta=...` for each message.
+
+   ```bash
+   docker compose logs -f app
+   ```
+
+10. **Stop it.** Add `-v` to also delete the data volumes (database, conversation history, downloaded models).
+
+    ```bash
+    docker compose --profile tunel down
+    ```
+
+After changing code or `.env`, run step 5 again. To run Ollama in a container as well (CPU only on macOS, and about 10 GB of model downloads), skip steps 3 and 4.
+
+### Run on a Linux server
+
+Everything runs in containers, Ollama included. The first start downloads both Ollama models (about 10 GB) into a volume:
+
+```bash
+docker compose up -d --build
+docker compose -f compose.yaml -f compose.gpu.yaml up -d --build   # with NVIDIA GPUs (needs NVIDIA Container Toolkit)
+```
+
+For a permanent deployment, use an ngrok reserved domain, or replace the tunnel with a reverse proxy with TLS (Caddy, nginx) in front of port 8000, and use that URL as the Callback URL.
+
+### How Compose configures the app
+
+Compose passes `.env` to the app but sets `LLAMA_STACK_URL`, `OLLAMA_HOST`, `DATABASE_PATH`, `HOST` and `PORT` itself, so those values in `.env` are ignored; use `PUERTO_APP` to change the published port. `MODELO_CHAT` and `MODELO_GUARD` in `.env` are picked up by the model download, Llama Stack and the app alike.
+
+State lives in four volumes: `datos` (the SQLite file), `llama-stack` (the conversation history), `ollama` (the models) and `huggingface` (the embedding model and Prompt Guard). The containers do not use the `data/` folder of a non-Docker run.
 
 ## Configuration
 
