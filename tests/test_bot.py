@@ -161,6 +161,20 @@ def test_saludo_usa_regla_fija(entorno):
     assert entorno.llama.conversaciones_creadas == 0
 
 
+def test_saludo_con_pregunta_regresa_el_saludo(entorno):
+    entorno.llama.llamada_pendiente = ("consultar_desarrollo", {"nombre": "Jacaranda"})
+    assert entorno.agente.decidir_y_responder(NUMERO, "¡Hola! ¿Cómo son las casas de Jacaranda?") == "llama"
+    assert entorno.whatsapp.enviados[-1][1].startswith("¡Hola! RESULTADO: ")
+    entorno.agente.decidir_y_responder(NUMERO, "¿Cómo son las casas de Jacaranda?")
+    assert entorno.whatsapp.enviados[-1][1].startswith("RESULTADO: ")
+    entorno.agente.decidir_y_responder(NUMERO, "buenas tardes, ¿cómo son las casas de Jacaranda?")
+    assert entorno.whatsapp.enviados[-1][1].startswith("¡Buenas tardes! RESULTADO: ")
+    # Si el modelo ya saludo, no se repite
+    entorno.llama.textos_pendientes = ["Hola, con gusto te ayudo."]
+    entorno.agente.decidir_y_responder(NUMERO, "Buenas tardes, una duda")
+    assert entorno.whatsapp.enviados[-1][1] == "Hola, con gusto te ayudo."
+
+
 def test_escalamiento_registra_solicitud(entorno):
     assert entorno.agente.decidir_y_responder(NUMERO, "Quiero hablar con un asesor") == "regla_escalamiento"
     # Mensaje con el que llega un visitante desde el boton de WhatsApp del sitio

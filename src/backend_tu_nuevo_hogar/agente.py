@@ -1,6 +1,7 @@
 import difflib
 import json
 import logging
+import re
 import threading
 import time
 
@@ -29,11 +30,17 @@ FRASES_ESCALAMIENTO = [
     "agente humano", "asesor humano", "que me llamen", "que me contacten",
     "agendar una visita", "agendar visita", "agendar una cita", "agendar cita",
 ]
+# Con que se contesta cada saludo del usuario; los que no estan aqui ("hola", "buenas") regresan "¡Hola! "
+SALUDOS_DE_VUELTA = {
+    "buenos dias": "¡Buenos días! ", "buenos días": "¡Buenos días! ", "buen dia": "¡Buenos días! ", "buen día": "¡Buenos días! ",
+    "buenas tardes": "¡Buenas tardes! ", "buenas noches": "¡Buenas noches! ",
+}
 FRASES_SALUDO = ["hola", "buenas", "buenos dias", "buenos días", "buenas tardes", "buenas noches", "que tal", "buen dia", "buen día"]
 
 SYSTEM_PROMPT = (
     "Eres el asistente de Tu Nuevo Hogar, una desarrolladora de vivienda. Orientas a personas interesadas en comprar casa. "
-    "Responde de forma breve (2-4 lineas) y en español. "
+    "Responde de forma breve (1-2 lineas), con un tono amable y en español. "
+    "Si preguntan que condominios o casas hay, menciona los cuatro condominios por su nombre. "
     "Solo usa una herramienta cuando el usuario pregunte algo especifico que la herramienta pueda responder "
     "(los condominios y sus casas, precios, caracteristicas y disponibilidad, o una duda sobre el proceso de compra, "
     "creditos, mensualidades, promociones y demas informacion de la inmobiliaria). No uses ninguna herramienta para "
@@ -76,6 +83,13 @@ def extraer_llamada_en_texto(texto):
 
 def es_solo_saludo(texto_low):
     return texto_low.strip(" ,.!¡¿?") in FRASES_SALUDO
+
+
+def saludo_inicial(texto_low):
+    # Regresa el saludo con el que empieza el texto (None si no empieza con uno); las frases largas se prueban primero
+    frases = "|".join(sorted(FRASES_SALUDO, key=len, reverse=True))
+    coincidencia = re.match(rf"[\s¡]*({frases})\b", texto_low)
+    return coincidencia.group(1) if coincidencia else None
 
 
 class Agente:
@@ -184,6 +198,10 @@ class Agente:
 
         # 3. Llama con herramientas
         respuesta = self.generar_respuesta(numero, texto)
+        # Si el usuario saludo junto con su pregunta, se le regresa el saludo (el modelo no siempre lo hace)
+        saludo = saludo_inicial(texto_low)
+        if saludo and not saludo_inicial(respuesta.lower()):
+            respuesta = SALUDOS_DE_VUELTA.get(saludo, "¡Hola! ") + respuesta
 
         # 4. Seguridad sobre la salida
         seguro, categoria = self.llama_guard.revisar([
