@@ -12,7 +12,9 @@ from backend_tu_nuevo_hogar.agente import Agente
 from backend_tu_nuevo_hogar.almacenamiento import Almacen
 from backend_tu_nuevo_hogar.app import crear_app
 from backend_tu_nuevo_hogar.catalogo import Catalogo, cargar_desarrollos
-from backend_tu_nuevo_hogar.conocimiento import SIN_COBERTURA, BaseConocimiento, cargar_fragmentos, palabras_clave
+from backend_tu_nuevo_hogar.conocimiento import (
+    SIN_COBERTURA, BaseConocimiento, cargar_fragmentos, palabras_clave, quitar_relleno,
+)
 from backend_tu_nuevo_hogar.config import Configuracion
 from backend_tu_nuevo_hogar.whatsapp import ErrorWhatsApp
 
@@ -145,6 +147,12 @@ def test_conocimiento_recupera_fragmento_o_declara_sin_cobertura():
 def test_palabras_clave_compara_raices():
     assert palabras_clave("¿Cuándo me entregan la casa?") == palabras_clave("entrega")
     assert palabras_clave("¿Necesito cita?") == palabras_clave("citas")
+
+
+def test_relleno_de_la_pregunta_no_se_codifica():
+    assert quitar_relleno("¿Tienen alberca los condominios de Tu Nuevo Hogar?").split() == ["¿Tienen", "alberca", "?"]
+    assert quitar_relleno("¿Aceptan mascotas?") == "¿Aceptan mascotas?"
+    assert quitar_relleno("los condominios") == "los condominios"  # sin nada mas que buscar, se deja igual
 
 
 def test_bono_de_titulo_desempata_fragmentos():

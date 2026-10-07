@@ -50,6 +50,16 @@ PALABRAS_GENERICAS = {
 }
 
 
+# El modelo suele reescribir la pregunta con este relleno ("¿Tienen alberca los condominios de Tu Nuevo Hogar?"),
+# y el embedding se va entonces con los fragmentos que nombran a la empresa; se quita antes de codificar
+RELLENO_PREGUNTA = re.compile(r"\b((de|en|los|las) )*(tu nuevo hogar|condominios?)\b", re.IGNORECASE)
+
+
+def quitar_relleno(pregunta):
+    sin_relleno = RELLENO_PREGUNTA.sub(" ", pregunta)
+    return sin_relleno if re.search(r"\w{4,}", sin_relleno) else pregunta
+
+
 def palabras_clave(texto):
     # Se comparan raices de 5 letras, para que "entregan" coincida con "entrega" y "citas" con "cita"
     palabras = set(re.findall(r"[a-z]{4,}", quitar_acentos(texto.lower()))) - PALABRAS_GENERICAS
@@ -79,7 +89,7 @@ class BaseConocimiento:
         self.palabras_titulo = [palabras_clave(f.split(":")[0]) for f in fragmentos]
 
     def similitudes(self, pregunta):
-        embedding_pregunta = np.asarray(self.codificar([pregunta]))
+        embedding_pregunta = np.asarray(self.codificar([quitar_relleno(pregunta)]))
         similitudes = np.dot(self.embeddings, embedding_pregunta.T).flatten()
         claves = palabras_clave(pregunta)
         bono = np.array([
