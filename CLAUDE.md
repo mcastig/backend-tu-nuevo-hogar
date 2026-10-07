@@ -49,6 +49,7 @@ State lives in SQLite through `Almacen` (`almacenamiento.py`): the phone-number-
 - The Llama Stack client is created with `max_retries=0` and a long timeout on purpose: an automatic retry duplicates the turn in the conversation.
 - `llama-stack` 0.7 breaks with `mcp>=2`; the `stack` dependency group pins `mcp<2.0`.
 - Webhook signature validation only runs when `WHATSAPP_APP_SECRET` is set.
+- `llama3.1:8b` sometimes writes a tool call as plain text (`{"name": ..., "parameters": ...}`), often with a misspelled tool name. `generar_respuesta` runs the closest-named tool and sends its result back as a user message (there is no `call_id` to answer); a reply that is still a tool call is replaced by `MENSAJE_SIN_RESPUESTA`.
 - Blocked messages and fixed-rule replies never reach Llama Stack, so they are absent from the conversation history the model sees on later turns.
 - `stack.py` reads `OLLAMA_HOST`, `MODELO_CHAT` and `LLAMA_STACK_PORT` from the process environment only, not from `.env`, while the app reads `.env`; a `MODELO_CHAT` set only in `.env` leaves the stack registering the default model. It regenerates `data/llama_stack.yaml` from the starter distribution on every start, so edits to that file are lost.
 - On Linux `torch` resolves to the CPU-only build from the PyTorch index (`[tool.uv.sources]`), which keeps CUDA out of the Docker image; the embedding model and Prompt Guard run on CPU there.

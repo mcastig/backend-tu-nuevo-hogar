@@ -1,3 +1,4 @@
+import difflib
 import json
 import logging
 import threading
@@ -49,11 +50,28 @@ SYSTEM_PROMPT = (
     "Nunca describas tu proceso, ni menciones nombres de funciones, parametros o claves de un resultado."
 )
 
+RESULTADO_EN_MENSAJE = (
+    "Resultado de la consulta: {}\n\nResponde mi pregunta anterior en texto normal, usando solo esa informacion."
+)
+
 HERRAMIENTAS = [HERRAMIENTA_DESARROLLO, HERRAMIENTA_INFORMACION]
 
 
 class HerramientaDesconocida(Exception):
     pass
+
+
+def extraer_llamada_en_texto(texto):
+    # llama3.1:8b a veces escribe la llamada como texto ({"name": ..., "parameters": {...}}) en vez de pedirla,
+    # sobre todo cuando se equivoca en el nombre de la herramienta; regresa (nombre, argumentos) o None
+    try:
+        datos = json.loads((texto or "").strip().removeprefix("<|python_tag|>"))
+    except ValueError:
+        return None
+    if not isinstance(datos, dict) or not isinstance(datos.get("name"), str):
+        return None
+    argumentos = datos.get("parameters", datos.get("arguments"))
+    return datos["name"], argumentos if isinstance(argumentos, dict) else {}
 
 
 def es_solo_saludo(texto_low):
@@ -117,8 +135,27 @@ class Agente:
                 instructions=SYSTEM_PROMPT,
                 tools=HERRAMIENTAS,
             )
+        elif llamada_en_texto := extraer_llamada_en_texto(respuesta.output_text):
+            nombre, argumentos = llamada_en_texto
+            # El nombre suele venir casi bien ("consulta_desarrollo"); se acepta el mas parecido
+            parecidos = difflib.get_close_matches(nombre, self.funciones, n=1, cutoff=0.8)
+            if not parecidos:
+                raise HerramientaDesconocida(nombre)
+            logger.warning("El modelo escribio la llamada a %s como texto; se ejecuta %s.", nombre, parecidos[0])
+            # No hay call_id al cual responder, asi que el resultado se manda como un mensaje mas
+            respuesta = self.cliente.responses.create(
+                model=self.modelo,
+                input=[{"role": "user", "content": RESULTADO_EN_MENSAJE.format(self.funciones[parecidos[0]](argumentos))}],
+                conversation=conversation_id,
+                instructions=SYSTEM_PROMPT,
+                tools=HERRAMIENTAS,
+            )
 
-        return (respuesta.output_text or "").strip() or MENSAJE_SIN_RESPUESTA
+        texto = (respuesta.output_text or "").strip()
+        # Una llamada escrita como texto nunca se le manda al usuario
+        if not texto or extraer_llamada_en_texto(texto):
+            return MENSAJE_SIN_RESPUESTA
+        return texto
 
     def decidir_y_responder(self, numero, texto):
         # Regresa el nombre de la ruta que tomo el mensaje

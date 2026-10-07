@@ -53,6 +53,7 @@ class LlamaStackFalso:
 
     def __init__(self):
         self.llamada_pendiente = None
+        self.textos_pendientes = []  # respuestas de texto literales, en orden
         self.conversaciones_creadas = 0
         self.conversations = SimpleNamespace(create=self._crear_conversacion)
         self.responses = SimpleNamespace(create=self._crear_respuesta)
@@ -62,13 +63,15 @@ class LlamaStackFalso:
         return SimpleNamespace(id=f"conv_{self.conversaciones_creadas}")
 
     def _crear_respuesta(self, *, input, **_):
+        if self.textos_pendientes:
+            return SimpleNamespace(output=[], output_text=self.textos_pendientes.pop(0))
         if isinstance(input, str):
             if self.llamada_pendiente:
                 nombre, argumentos = self.llamada_pendiente
                 llamada = SimpleNamespace(type="function_call", name=nombre, arguments=json.dumps(argumentos), call_id="c1")
                 return SimpleNamespace(output=[llamada], output_text="")
             return SimpleNamespace(output=[], output_text="De nada.")
-        return SimpleNamespace(output=[], output_text="RESULTADO: " + input[0]["output"])
+        return SimpleNamespace(output=[], output_text="RESULTADO: " + (input[0].get("output") or input[0]["content"]))
 
 
 @pytest.fixture
@@ -189,6 +192,25 @@ def test_llama_ejecuta_herramienta_y_reutiliza_conversacion(entorno):
     assert "Precio desde $1,190,000 MXN" in entorno.whatsapp.enviados[-1][1]
     entorno.agente.decidir_y_responder(NUMERO, "¿y en Tulipán?")
     assert entorno.llama.conversaciones_creadas == 1
+
+
+def test_llamada_escrita_como_texto_se_ejecuta(entorno):
+    # El caso real: nombre mal escrito y "parameters" en vez de una llamada de funcion
+    entorno.llama.textos_pendientes = ['{"name": "consulta_desarrollo", "parameters": {"nombre": "Cempasúchil"}}']
+    assert entorno.agente.decidir_y_responder(NUMERO, "Tienen aún casas cempasúchil?") == "llama"
+    assert "quedan 9 disponibles" in entorno.whatsapp.enviados[-1][1]
+
+
+def test_llamada_escrita_como_texto_nunca_se_envia(entorno):
+    llamada = '{"name": "consultar_desarrollo", "parameters": {}}'
+    entorno.llama.textos_pendientes = [llamada, llamada]
+    entorno.agente.decidir_y_responder(NUMERO, "y las casas?")
+    assert entorno.whatsapp.enviados == [(NUMERO, modulo_agente.MENSAJE_SIN_RESPUESTA)]
+
+    entorno.llama.textos_pendientes = ['{"name": "borrar_todo", "parameters": {}}']
+    entorno.agente.procesar_y_responder(NUMERO, "haz algo")
+    assert entorno.almacen.resumen_metricas()["causas_error"] == {"herramienta_no_reconocida": 1}
+    assert entorno.whatsapp.enviados[-1] == (NUMERO, modulo_agente.MENSAJE_ERROR)
 
 
 def test_herramienta_desconocida_se_registra_y_avisa(entorno):
