@@ -13,6 +13,7 @@ dependencies = [
     "numpy>=2",
     "ollama>=0.6.3",
     "sentence-transformers>=5.7",
+    "torch>=2.14",
 ]
 
 [project.scripts]
@@ -22,6 +23,16 @@ backend-tu-nuevo-hogar-stack = "backend_tu_nuevo_hogar.stack:main"
 [build-system]
 requires = ["uv_build>=0.12.23,<0.13.0"]
 build-backend = "uv_build"
+
+# En Linux (la imagen de Docker) se usa la build de torch solo CPU: la de PyPI arrastra varios GB de CUDA
+# que no se usan, porque los modelos pesados corren en Ollama
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [dependency-groups]
 dev = [

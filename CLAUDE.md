@@ -47,5 +47,6 @@ State lives in SQLite through `Almacen` (`almacenamiento.py`): the phone-number-
 - Webhook signature validation only runs when `WHATSAPP_APP_SECRET` is set.
 - Blocked messages and fixed-rule replies never reach Llama Stack, so they are absent from the conversation history the model sees on later turns.
 - `stack.py` reads `OLLAMA_HOST`, `MODELO_CHAT` and `LLAMA_STACK_PORT` from the process environment only, not from `.env`, while the app reads `.env`; a `MODELO_CHAT` set only in `.env` leaves the stack registering the default model. It regenerates `data/llama_stack.yaml` from the starter distribution on every start, so edits to that file are lost.
-- `httpx`, `pydantic-settings`, `torch`, `transformers` and `yaml` are imported directly but only arrive transitively (through `fastapi[standard]`, `sentence-transformers` and `llama-stack`).
+- On Linux `torch` resolves to the CPU-only build from the PyTorch index (`[tool.uv.sources]`), which keeps CUDA out of the Docker image; the embedding model and Prompt Guard run on CPU there.
+- `httpx`, `pydantic-settings`, `transformers` and `yaml` are imported directly but only arrive transitively (through `fastapi[standard]`, `sentence-transformers` and `llama-stack`).
 - Heavy imports (`torch`, `sentence_transformers`, `llama_stack`) are deferred into functions so that importing `app.py` and running the tests stays fast; keep new ones lazy too.
