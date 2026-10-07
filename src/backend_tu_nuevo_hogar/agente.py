@@ -45,7 +45,9 @@ RELLENO_DESPEDIDA = (
 
 # Rastros del funcionamiento interno que no deben llegarle al usuario: nombres con guion bajo (las herramientas
 # y sus campos), JSON y el vocabulario con el que el modelo describe sus herramientas (se comparan sin acentos)
-RASTROS_INTERNOS = re.compile(r"\w_\w|[{}]|<\||\b(herramientas?|parametros?|fragmentos?|json)\b")
+RASTROS_INTERNOS = re.compile(
+    r"\w_\w|[{}]|<\||\b(herramientas?|parametros?|fragmentos?|json|(una|la|las|esa|ninguna) funcion(es)?)\b"
+)
 
 # Con que se contesta cada saludo del usuario; los que no estan aqui ("hola", "buenas") regresan "¡Hola! "
 SALUDOS_DE_VUELTA = {
