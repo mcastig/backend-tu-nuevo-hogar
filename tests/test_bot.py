@@ -236,6 +236,23 @@ def test_llamada_escrita_como_texto_nunca_se_envia(entorno):
     assert entorno.whatsapp.enviados[-1] == (NUMERO, modulo_agente.MENSAJE_ERROR)
 
 
+def test_respuesta_no_menciona_el_funcionamiento_interno(entorno):
+    casos = {
+        "Según buscar_information, el horario es de 9 a 18. Te esperamos en la casa muestra.": "Te esperamos en la casa muestra.",
+        "Lo siento, mi herramienta no encontró información sobre el enganche.": modulo_agente.MENSAJE_SIN_RESPUESTA,
+        "El enganche depende en función del crédito.\n- Desde 5 %": "El enganche depende en función del crédito.\n- Desde 5 %",
+    }
+    for respuesta, esperado in casos.items():
+        entorno.llama.textos_pendientes = [respuesta]
+        entorno.agente.decidir_y_responder(NUMERO, "¿cuál es el horario?")
+        assert entorno.whatsapp.enviados[-1][1] == esperado
+
+    # Una llamada escrita en medio de una frase tambien se ejecuta
+    entorno.llama.textos_pendientes = ['Voy a revisar: {"name": "consultar_desarrollo", "parameters": {"nombre": "Tulipán"}}']
+    entorno.agente.decidir_y_responder(NUMERO, "¿cuánto cuesta Tulipán?")
+    assert "$2,650,000 MXN" in entorno.whatsapp.enviados[-1][1]
+
+
 def test_herramienta_desconocida_se_registra_y_avisa(entorno):
     entorno.llama.llamada_pendiente = ("borrar_todo", {})
     entorno.agente.procesar_y_responder(NUMERO, "haz algo")

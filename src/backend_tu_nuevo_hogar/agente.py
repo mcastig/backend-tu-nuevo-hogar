@@ -43,6 +43,10 @@ RELLENO_DESPEDIDA = (
     r"buen dia|buenos dias|buenas tardes|buenas noches"
 )
 
+# Rastros del funcionamiento interno que no deben llegarle al usuario: nombres con guion bajo (las herramientas
+# y sus campos), JSON y el vocabulario con el que el modelo describe sus herramientas (se comparan sin acentos)
+RASTROS_INTERNOS = re.compile(r"\w_\w|[{}]|<\||\b(herramientas?|parametros?|fragmentos?|json)\b")
+
 # Con que se contesta cada saludo del usuario; los que no estan aqui ("hola", "buenas") regresan "¡Hola! "
 SALUDOS_DE_VUELTA = {
     "buenos dias": "¡Buenos días! ", "buenos días": "¡Buenos días! ", "buen dia": "¡Buenos días! ", "buen día": "¡Buenos días! ",
@@ -83,15 +87,27 @@ class HerramientaDesconocida(Exception):
 
 def extraer_llamada_en_texto(texto):
     # llama3.1:8b a veces escribe la llamada como texto ({"name": ..., "parameters": {...}}) en vez de pedirla,
-    # sobre todo cuando se equivoca en el nombre de la herramienta; regresa (nombre, argumentos) o None
-    try:
-        datos = json.loads((texto or "").strip().removeprefix("<|python_tag|>"))
-    except ValueError:
-        return None
-    if not isinstance(datos, dict) or not isinstance(datos.get("name"), str):
-        return None
-    argumentos = datos.get("parameters", datos.get("arguments"))
-    return datos["name"], argumentos if isinstance(argumentos, dict) else {}
+    # sola o en medio de una frase, sobre todo cuando se equivoca en el nombre de la herramienta;
+    # regresa (nombre, argumentos) o None
+    texto = texto or ""
+    for inicio in (m.start() for m in re.finditer(r"\{", texto)):
+        try:
+            datos, _ = json.JSONDecoder().raw_decode(texto, inicio)
+        except ValueError:
+            continue
+        if isinstance(datos, dict) and isinstance(datos.get("name"), str):
+            argumentos = datos.get("parameters", datos.get("arguments"))
+            return datos["name"], argumentos if isinstance(argumentos, dict) else {}
+    return None
+
+
+def quitar_rastros_internos(texto):
+    # Quita las oraciones que mencionan el funcionamiento interno; si no queda una respuesta, regresa ""
+    oraciones = re.split(r"(?<=[.!?])\s+", texto)
+    limpias = [o for o in oraciones if not RASTROS_INTERNOS.search(quitar_acentos(o.lower()))]
+    if len(limpias) == len(oraciones):
+        return texto
+    return " ".join(limpias) if len(" ".join(limpias).split()) >= 3 else ""
 
 
 def es_solo_despedida(texto_low):
@@ -185,10 +201,11 @@ class Agente:
             )
 
         texto = (respuesta.output_text or "").strip()
-        # Una llamada escrita como texto nunca se le manda al usuario
-        if not texto or extraer_llamada_en_texto(texto):
-            return MENSAJE_SIN_RESPUESTA
-        return texto
+        # Ni una llamada escrita como texto ni los nombres internos se le mandan al usuario
+        limpio = quitar_rastros_internos(texto)
+        if limpio != texto:
+            logger.warning("La respuesta mencionaba el funcionamiento interno y se recorto: %r", texto)
+        return limpio or MENSAJE_SIN_RESPUESTA
 
     def decidir_y_responder(self, numero, texto):
         # Regresa el nombre de la ruta que tomo el mensaje
