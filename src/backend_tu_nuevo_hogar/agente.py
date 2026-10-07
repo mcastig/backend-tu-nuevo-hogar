@@ -8,7 +8,7 @@ import time
 import ollama
 from llama_stack_client import APIConnectionError, APIStatusError, APITimeoutError
 
-from backend_tu_nuevo_hogar.catalogo import HERRAMIENTA_DESARROLLO
+from backend_tu_nuevo_hogar.catalogo import HERRAMIENTA_DESARROLLO, quitar_acentos
 from backend_tu_nuevo_hogar.conocimiento import HERRAMIENTA_INFORMACION
 from backend_tu_nuevo_hogar.whatsapp import ErrorWhatsApp
 
@@ -21,6 +21,7 @@ MENSAJE_SALUDO = (
     "Hola, soy el asistente de Tu Nuevo Hogar. Puedo informarte sobre nuestras casas, precios, "
     "créditos y el proceso de compra. ¿En qué puedo ayudarte?"
 )
+MENSAJE_DESPEDIDA = "Estamos a sus órdenes para cualquier duda futura. ¡Hasta pronto!"
 MENSAJE_SOLO_TEXTO = "Por ahora solo puedo leer mensajes de texto. ¿Me escribes tu duda?"
 MENSAJE_SIN_RESPUESTA = "No encontré esa información. Un asesor puede confirmártela directamente."
 MENSAJE_ERROR = "Estamos teniendo un problema técnico. Intenta de nuevo en un momento."
@@ -30,6 +31,18 @@ FRASES_ESCALAMIENTO = [
     "agente humano", "asesor humano", "que me llamen", "que me contacten",
     "agendar una visita", "agendar visita", "agendar una cita", "agendar cita",
 ]
+# Una despedida es un mensaje que trae al menos una de estas frases y nada mas que relleno alrededor
+# (se comparan sin acentos; "si" no es relleno porque "si, gracias" suele ser aceptar algo, no despedirse)
+FRASES_DESPEDIDA = (
+    r"gracias|adios|hasta (luego|pronto|manana|la proxima)|bye|nos vemos|chao|chau|(eso )?(es|seria) todo|"
+    r"que (tenga|tengas|tengan) (un )?(buen|bonito|excelente) dia"
+)
+RELLENO_DESPEDIDA = (
+    r"ok|okay|okey|vale|perfecto|listo|entendido|excelente|de acuerdo|muy bien|muy amable|no|muchas|muchisimas|mil|"
+    r"por (todo|la informacion|la ayuda|su ayuda|tu ayuda|la atencion|su atencion)|igualmente|"
+    r"buen dia|buenos dias|buenas tardes|buenas noches"
+)
+
 # Con que se contesta cada saludo del usuario; los que no estan aqui ("hola", "buenas") regresan "¡Hola! "
 SALUDOS_DE_VUELTA = {
     "buenos dias": "¡Buenos días! ", "buenos días": "¡Buenos días! ", "buen dia": "¡Buenos días! ", "buen día": "¡Buenos días! ",
@@ -79,6 +92,12 @@ def extraer_llamada_en_texto(texto):
         return None
     argumentos = datos.get("parameters", datos.get("arguments"))
     return datos["name"], argumentos if isinstance(argumentos, dict) else {}
+
+
+def es_solo_despedida(texto_low):
+    texto = " ".join(re.sub(r"[^a-z ]", " ", quitar_acentos(texto_low)).split())
+    resto = re.sub(rf"\b({FRASES_DESPEDIDA}|{RELLENO_DESPEDIDA})\b", " ", texto)
+    return not resto.strip() and re.search(rf"\b({FRASES_DESPEDIDA})\b", texto) is not None
 
 
 def es_solo_saludo(texto_low):
@@ -195,6 +214,9 @@ class Agente:
         if es_solo_saludo(texto_low):
             self.whatsapp.enviar(numero, MENSAJE_SALUDO)
             return "regla_saludo"
+        if es_solo_despedida(texto_low):
+            self.whatsapp.enviar(numero, MENSAJE_DESPEDIDA)
+            return "regla_despedida"
 
         # 3. Llama con herramientas
         respuesta = self.generar_respuesta(numero, texto)

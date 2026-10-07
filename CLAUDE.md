@@ -30,7 +30,7 @@ The `Dockerfile` has two targets built on shared dependency layers: `app` and `s
 `Agente` (`agente.py`) owns the message pipeline, and its order matters:
 
 1. Prompt Guard, then Llama Guard on the incoming text (`seguridad.py`)
-2. Fixed rules: escalation phrases (recorded as a contact request) and bare greetings
+2. Fixed rules: escalation phrases (recorded as a contact request), bare greetings and bare farewells or thanks
 3. `generar_respuesta`: Llama Stack Responses API with one round of function calling
 4. Llama Guard on the reply before sending
 

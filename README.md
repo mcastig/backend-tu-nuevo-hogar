@@ -10,7 +10,7 @@ All company data (condominios, prices, policies, staff) is invented. `INFO.md` i
 
 1. Meta calls `POST /webhook`. The signature is checked (when `WHATSAPP_APP_SECRET` is set), repeated message ids are dropped, and the work moves to a background task. Messages that are not text get a fixed "text only" reply.
 2. **Input safety:** Prompt Guard (prompt injection) and Llama Guard (unsafe content).
-3. **Fixed rules:** greetings get a canned reply; "hablar con un asesor" and similar phrases record a contact request.
+3. **Fixed rules:** greetings and farewells ("gracias", "hasta luego") get a canned reply; "hablar con un asesor" and similar phrases record a contact request.
 4. **Llama 3.1 with tools:** `consultar_desarrollo` (catalog lookup) and `buscar_informacion` (RAG over the knowledge base).
 5. **Output safety:** Llama Guard reviews the reply before it is sent.
 

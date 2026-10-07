@@ -175,6 +175,15 @@ def test_saludo_con_pregunta_regresa_el_saludo(entorno):
     assert entorno.whatsapp.enviados[-1][1] == "Hola, con gusto te ayudo."
 
 
+def test_despedida_usa_regla_fija(entorno):
+    for texto in ("Gracias", "ok, muchas gracias!", "Eso es todo, hasta luego", "No, gracias. Buenas noches", "adiós"):
+        assert entorno.agente.decidir_y_responder(NUMERO, texto) == "regla_despedida", texto
+    assert entorno.whatsapp.enviados[-1] == (NUMERO, modulo_agente.MENSAJE_DESPEDIDA)
+    # Con una pregunta, o aceptando algo, no es despedida
+    for texto in ("gracias, ¿y aceptan mascotas?", "sí, gracias", "ok perfecto"):
+        assert entorno.agente.decidir_y_responder(NUMERO, texto) == "llama", texto
+
+
 def test_escalamiento_registra_solicitud(entorno):
     assert entorno.agente.decidir_y_responder(NUMERO, "Quiero hablar con un asesor") == "regla_escalamiento"
     # Mensaje con el que llega un visitante desde el boton de WhatsApp del sitio
@@ -191,7 +200,7 @@ def test_entrada_insegura_se_bloquea_antes_de_llama(entorno):
 
 def test_salida_insegura_no_se_envia(entorno):
     entorno.guard.inseguros.add("De nada.")
-    assert entorno.agente.decidir_y_responder(NUMERO, "gracias") == "bloqueado_llama_guard_salida"
+    assert entorno.agente.decidir_y_responder(NUMERO, "sí, por favor") == "bloqueado_llama_guard_salida"
     assert entorno.whatsapp.enviados == [(NUMERO, modulo_agente.MENSAJE_RESPUESTA_BLOQUEADA)]
 
 
