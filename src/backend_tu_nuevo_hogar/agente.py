@@ -9,7 +9,7 @@ import ollama
 from llama_stack_client import APIConnectionError, APIStatusError, APITimeoutError
 
 from backend_tu_nuevo_hogar.catalogo import HERRAMIENTA_DESARROLLO, quitar_acentos
-from backend_tu_nuevo_hogar.conocimiento import HERRAMIENTA_INFORMACION
+from backend_tu_nuevo_hogar.conocimiento import HERRAMIENTA_INFORMACION, SIN_COBERTURA
 from backend_tu_nuevo_hogar.whatsapp import ErrorWhatsApp
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,10 @@ MENSAJE_SALUDO = (
 )
 MENSAJE_DESPEDIDA = "Estamos a sus órdenes para cualquier duda futura. ¡Hasta pronto!"
 MENSAJE_SOLO_TEXTO = "Por ahora solo puedo leer mensajes de texto. ¿Me escribes tu duda?"
-MENSAJE_SIN_RESPUESTA = "No encontré esa información. Un asesor puede confirmártela directamente."
+MENSAJE_SIN_RESPUESTA = (
+    "No cuento con esa información; sin embargo, puedes hablar con alguno de nuestros asesores "
+    "para cualquier otra duda que tengas."
+)
 MENSAJE_ERROR = "Estamos teniendo un problema técnico. Intenta de nuevo en un momento."
 
 FRASES_ESCALAMIENTO = [
@@ -47,6 +50,20 @@ RELLENO_DESPEDIDA = (
 # y sus campos), JSON y el vocabulario con el que el modelo describe sus herramientas (se comparan sin acentos)
 RASTROS_INTERNOS = re.compile(
     r"\w_\w|[{}]|<\||\b(herramientas?|parametros?|fragmentos?|json|(una|la|las|esa|ninguna) funcion(es)?)\b"
+)
+
+# Asi se niega el modelo cuando le preguntan algo ajeno a la inmobiliaria (se compara sin acentos). Cada vez lo
+# dice distinto y a veces de mas, asi que la negativa se cambia por el mensaje fijo. Pedirle en el prompt que
+# conteste el mensaje fijo no sirve: empieza a contestarlo tambien cuando la herramienta si trajo el dato
+SIN_DATOS = re.compile(
+    r"no (tengo|cuento con|encontre|dispongo de) (la |esa |mas |ninguna )?informacion|no esta disponible|"
+    r"no es relevante"
+)
+# Sin haber consultado ninguna herramienta, una disculpa tambien es negativa; despues de consultar puede ser
+# una respuesta valida ("Lo siento, no rentamos departamentos")
+NEGATIVA_SIN_CONSULTAR = re.compile(
+    r"^\W*(lo siento|lo sentimos|disculpa|perdon)|solo puedo (ayudar|responder|informar)|"
+    r"no puedo (ayudar|responder)|no se que relacion|mi capacidad"
 )
 
 # Con que se contesta cada saludo del usuario; los que no estan aqui ("hola", "buenas") regresan "¡Hola! "
@@ -179,6 +196,14 @@ class Agente:
                     "call_id": llamada.call_id,
                     "output": self.funciones[llamada.name](argumentos),
                 })
+            if all(r["output"] == SIN_COBERTURA for r in resultados):
+                # Nada cubre la pregunta: se contesta el mensaje fijo sin otra llamada al modelo, y se deja
+                # registrado en la conversacion para que el historial coincida con lo que vio el usuario
+                self.cliente.conversations.items.create(
+                    conversation_id,
+                    items=[*resultados, {"type": "message", "role": "assistant", "content": MENSAJE_SIN_RESPUESTA}],
+                )
+                return MENSAJE_SIN_RESPUESTA
             respuesta = self.cliente.responses.create(
                 model=self.modelo,
                 input=resultados,
@@ -203,6 +228,10 @@ class Agente:
             )
 
         texto = (respuesta.output_text or "").strip()
+        texto_low = quitar_acentos(texto.lower())
+        consulto = bool(llamadas_funcion or llamada_en_texto)
+        if SIN_DATOS.search(texto_low) or (not consulto and NEGATIVA_SIN_CONSULTAR.search(texto_low)):
+            return MENSAJE_SIN_RESPUESTA
         # Ni una llamada escrita como texto ni los nombres internos se le mandan al usuario
         limpio = quitar_rastros_internos(texto)
         if limpio != texto:
@@ -239,10 +268,16 @@ class Agente:
 
         # 3. Llama con herramientas
         respuesta = self.generar_respuesta(numero, texto)
+        sin_informacion = respuesta == MENSAJE_SIN_RESPUESTA
         # Si el usuario saludo junto con su pregunta, se le regresa el saludo (el modelo no siempre lo hace)
         saludo = saludo_inicial(texto_low)
         if saludo and not saludo_inicial(respuesta.lower()):
             respuesta = SALUDOS_DE_VUELTA.get(saludo, "¡Hola! ") + respuesta
+
+        if sin_informacion:
+            # Es un mensaje fijo: no necesita revision de salida
+            self.whatsapp.enviar(numero, respuesta)
+            return "sin_informacion"
 
         # 4. Seguridad sobre la salida
         seguro, categoria = self.llama_guard.revisar([

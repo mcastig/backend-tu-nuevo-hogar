@@ -57,7 +57,11 @@ class LlamaStackFalso:
         self.llamada_pendiente = None
         self.textos_pendientes = []  # respuestas de texto literales, en orden
         self.conversaciones_creadas = 0
-        self.conversations = SimpleNamespace(create=self._crear_conversacion)
+        self.items_agregados = []
+        self.conversations = SimpleNamespace(
+            create=self._crear_conversacion,
+            items=SimpleNamespace(create=lambda conversacion, items: self.items_agregados.extend(items)),
+        )
         self.responses = SimpleNamespace(create=self._crear_respuesta)
 
     def _crear_conversacion(self):
@@ -65,8 +69,9 @@ class LlamaStackFalso:
         return SimpleNamespace(id=f"conv_{self.conversaciones_creadas}")
 
     def _crear_respuesta(self, *, input, **_):
-        if self.textos_pendientes:
-            return SimpleNamespace(output=[], output_text=self.textos_pendientes.pop(0))
+        # Un None en textos_pendientes deja pasar ese turno al comportamiento normal
+        if self.textos_pendientes and (texto := self.textos_pendientes.pop(0)) is not None:
+            return SimpleNamespace(output=[], output_text=texto)
         if isinstance(input, str):
             if self.llamada_pendiente:
                 nombre, argumentos = self.llamada_pendiente
@@ -262,6 +267,30 @@ def test_respuesta_no_menciona_el_funcionamiento_interno(entorno):
     entorno.llama.textos_pendientes = ['Voy a revisar: {"name": "consultar_desarrollo", "parameters": {"nombre": "Tulipán"}}']
     entorno.agente.decidir_y_responder(NUMERO, "¿cuánto cuesta Tulipán?")
     assert "$2,650,000 MXN" in entorno.whatsapp.enviados[-1][1]
+
+
+def test_pregunta_sin_cobertura_recibe_el_mensaje_fijo(entorno):
+    # La herramienta no encontro nada: mensaje fijo, sin segunda llamada al modelo y registrado en la conversacion
+    entorno.llama.llamada_pendiente = ("buscar_informacion", {"pregunta": "¿venden pizza?"})
+    assert entorno.agente.decidir_y_responder(NUMERO, "¿venden pizza?") == "sin_informacion"
+    assert entorno.whatsapp.enviados[-1] == (NUMERO, modulo_agente.MENSAJE_SIN_RESPUESTA)
+    assert [i.get("content") or i["output"] for i in entorno.llama.items_agregados] == [SIN_COBERTURA, modulo_agente.MENSAJE_SIN_RESPUESTA]
+
+    # El modelo se nego por su cuenta, sin consultar nada
+    entorno.llama.llamada_pendiente = None
+    entorno.llama.textos_pendientes = ["Lo siento, no tengo información sobre el clima. Solo puedo ayudarte con casas."]
+    assert entorno.agente.decidir_y_responder(NUMERO, "Hola, ¿qué clima hace hoy?") == "sin_informacion"
+    assert entorno.whatsapp.enviados[-1][1] == "¡Hola! " + modulo_agente.MENSAJE_SIN_RESPUESTA
+
+    entorno.llama.textos_pendientes = ["Lo siento, mi capacidad se enfoca en la inmobiliaria."]
+    assert entorno.agente.decidir_y_responder(NUMERO, "¿me ayudas con mi tarea?") == "sin_informacion"
+
+    # Despues de consultar una herramienta, una disculpa con datos se respeta; una negativa sin datos, no
+    entorno.llama.llamada_pendiente = ("consultar_desarrollo", {"nombre": "Jacaranda"})
+    entorno.llama.textos_pendientes = [None, "Lo siento, no rentamos departamentos. Vendemos casas nuevas."]
+    assert entorno.agente.decidir_y_responder(NUMERO, "¿rentan departamentos?") == "llama"
+    entorno.llama.textos_pendientes = [None, "Lo siento, pero no tengo la información sobre el ganador del Mundial."]
+    assert entorno.agente.decidir_y_responder(NUMERO, "¿quién ganó el mundial?") == "sin_informacion"
 
 
 def test_herramienta_desconocida_se_registra_y_avisa(entorno):
