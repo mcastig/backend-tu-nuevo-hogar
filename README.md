@@ -10,9 +10,12 @@ All company data (condominios, prices, policies, staff) is invented. `INFO.md` i
 
 1. Meta calls `POST /webhook`. The signature is checked (when `WHATSAPP_APP_SECRET` is set), repeated message ids are dropped, and the work moves to a background task. Messages that are not text get a fixed "text only" reply.
 2. **Input safety:** Prompt Guard (prompt injection) and Llama Guard (unsafe content).
-3. **Fixed rules:** greetings and farewells ("gracias", "hasta luego") get a canned reply; "hablar con un asesor" and similar phrases record a contact request.
+3. **Fixed rules:** "hablar con un asesor" and similar phrases record a contact request; a bare greeting, and a bare farewell or thanks ("gracias", "hasta luego"), get a canned reply.
 4. **Llama 3.1 with tools:** `consultar_desarrollo` (catalog lookup) and `buscar_informacion` (RAG over the knowledge base).
-5. **Output safety:** Llama Guard reviews the reply before it is sent.
+5. **Clean-up of the reply:** sentences that mention the bot's internals (tool names, JSON) are removed, and a greeting is returned when the user opened with one ("Hola, ¿cuánto cuesta…?" gets "¡Hola! …").
+6. **Output safety:** Llama Guard reviews the reply before it is sent.
+
+When the bot has no answer (the search finds nothing that covers the question, or the model declines an off-topic one), the user gets one fixed message: "No cuento con esa información; sin embargo, puedes hablar con alguno de nuestros asesores para cualquier otra duda que tengas."
 
 Messages from the same phone number are handled one at a time. If a step fails, the user gets a generic "technical problem" reply and the failure is stored with a named cause (for example `llama_timeout` or `whatsapp_api_error`). A message id is marked as processed when it arrives, so a message that failed is not retried when Meta redelivers it.
 
@@ -24,6 +27,8 @@ Conversation ids, processed message ids, metrics, errors, blocks and contact req
 - [Ollama](https://ollama.com) with the two models: `ollama pull llama3.1:8b` and `ollama pull llama-guard3`
 - A WhatsApp Cloud API app (access token, phone number id, app secret)
 - Optional: a Hugging Face token with access to `meta-llama/Llama-Prompt-Guard-2-86M`
+
+With Docker (see *Run with Docker*), uv and Python are not needed: Docker, Ollama on macOS, and an [ngrok](https://ngrok.com) account for the tunnel are enough.
 
 ## First-time setup
 
@@ -141,6 +146,14 @@ These steps use the Ollama installed on your machine and run Llama Stack and the
 
 After changing code or `.env`, run step 5 again. To run Ollama in a container as well (CPU only on macOS, and about 10 GB of model downloads), skip steps 3 and 4.
 
+### If something fails with Docker
+
+- **Replies take 15 seconds or more on macOS:** Ollama is unloading and reloading the two models on every step because there is not enough free memory for both (about 5 GB each). Lower Docker Desktop's memory (Settings → Resources; the containers use about 0.5 GB) and close other heavy apps. `ollama ps` shows which models are loaded.
+- **Every message gets the "problema técnico" reply and the app logs `llama_guard_no_disponible`:** Ollama is not running on the host. Start it with `ollama serve`; the containers do not need a restart.
+- **Replies got much slower after opening a new terminal:** `COMPOSE_FILE` (step 4) was not set there, so Compose started Ollama in a container, on CPU. Run `docker compose --profile tunel down`, set the variable and start again.
+- **The tunnel gives no URL:** check `NGROK_AUTHTOKEN` in `.env` (it must be the authtoken, not an API key); `docker compose logs tunel` shows ngrok's error.
+- **A changed `.env` has no effect:** `docker compose restart` keeps the old values. Use `docker compose up -d`, which recreates the container.
+
 ### Run on a Linux server
 
 Everything runs in containers, Ollama included. The first start downloads both Ollama models (about 10 GB) into a volume:
@@ -171,6 +184,8 @@ State lives in four volumes: `datos` (the SQLite file), `llama-stack` (the conve
 | `LLAMA_STACK_URL`, `OLLAMA_HOST`, `DATABASE_PATH`, `HOST`, `PORT` | no | Defaults: `http://localhost:8321`, `http://localhost:11434`, `data/bot.sqlite3`, `0.0.0.0`, `8000` |
 | `MODELO_CHAT`, `MODELO_GUARD`, `MODELO_EMBEDDINGS` | no | Defaults: `ollama/llama3.1:8b`, `llama-guard3`, `paraphrase-multilingual-MiniLM-L12-v2` |
 | `UMBRAL_CONOCIMIENTO` | no | Minimum similarity for a knowledge fragment to count as an answer. Default `0.30` |
+| `NGROK_AUTHTOKEN` | Docker tunnel only | ngrok authtoken for the `tunel` Compose profile |
+| `PUERTO_APP` | no | Docker only: host port the app is published on. Default `8000` |
 
 The webhook server reads these from `.env`. The Llama Stack launcher (`backend-tu-nuevo-hogar-stack`) does not read `.env`: it takes `OLLAMA_HOST`, `MODELO_CHAT` and `LLAMA_STACK_PORT` (default `8321`) from the shell environment. If you change `OLLAMA_HOST` or `MODELO_CHAT` in `.env`, export the same value before starting the launcher, or the app will ask for a model the stack has not registered.
 
@@ -183,6 +198,16 @@ The webhook server reads these from `.env`. The Llama Stack launcher (`backend-t
 | `GET /health` | Reports whether Prompt Guard is loaded |
 | `GET /metricas` | Message count per route, error rate and causes, average response time, and contact requests. Needs `ADMIN_TOKEN` |
 
+`/metricas` counts messages by route, the path each one took:
+
+| Route | Meaning |
+| --- | --- |
+| `llama` | Answered by the model |
+| `sin_informacion` | The fixed "No cuento con esa información…" message |
+| `regla_saludo`, `regla_despedida`, `regla_escalamiento` | A fixed rule answered (greeting, farewell, contact request) |
+| `bloqueado_prompt_guard`, `bloqueado_llama_guard_entrada`, `bloqueado_llama_guard_salida` | Blocked by a safety check |
+| `error` | A step failed; the cause is counted separately |
+
 ## Changing the company data
 
 The bot's content is two JSON files in `src/backend_tu_nuevo_hogar/datos/`:
@@ -191,6 +216,8 @@ The bot's content is two JSON files in `src/backend_tu_nuevo_hogar/datos/`:
 - `conocimiento.json`: the knowledge base, a list of short text fragments about schedules, credits, estimated monthly payments, the buying process and so on.
 
 Both files are written from `INFO.md`. When a fact changes, update `INFO.md` and then both files: prices, promotions and fees appear in each. Promotions carry their end date in the text; nothing removes them when they expire.
+
+The catalog also tells the model which condominios lack a pool or a gym ("Bugambilia NO tiene alberca ni gimnasio"), because the model otherwise answers "sí". That is worked out from the words in each `amenidades` list, so an amenity must contain the word `alberca` or `gimnasio` to count.
 
 Keep each fragment short, about one topic, and starting with its title (`Enganche: ...`). The title counts extra in the search, so use the words people ask with. After editing fragments, check retrieval with the real embedding model: the tests use a fake encoder and will not notice a fragment that no longer matches its questions.
 
