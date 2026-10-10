@@ -12,3 +12,9 @@ wheels/
 # Secrets and local state
 .env
 data/
+
+# Just local information, not needed for the project
+*.log
+DEMO.md
+INFO.md
+
