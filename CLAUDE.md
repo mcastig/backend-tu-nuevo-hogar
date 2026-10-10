@@ -46,6 +46,14 @@ The unit tests say nothing about how `llama3.1:8b` behaves. To check a prompt, t
 
 State lives in SQLite through `Almacen` (`almacenamiento.py`): the phone-number-to-conversation mapping, processed message ids (webhook dedupe), metrics, errors, blocks and contact requests. The conversation history itself is stored by Llama Stack.
 
+## Deployment
+
+The bot runs on the author's Mac (host Ollama, Compose, ngrok tunnel); it is a school project with no hosting budget. Render with hosted models was built and reverted on 2026-10-10 because of cost (two 2 GB instances, about $51 a month, plus model usage); nothing of it is in the repo. What that attempt established, if it comes up again:
+
+- Render has no GPU, its free tier has 512 MB and no disk, and it cannot choose a Dockerfile target: it builds the last stage and passes the service's environment variables as build arguments.
+- Groq, Together and Cerebras retired Llama 3.1 8B and Llama Guard during 2026. OpenRouter still listed `meta-llama/llama-3.1-8b-instruct` and `meta-llama/llama-guard-4-12b` (no hosted Llama Guard 3). Replies from the hosted model were never tested.
+- Llama Guard works through Llama Stack's chat completions (`ollama/llama-guard3`), which removes the app's direct Ollama client, and OpenRouter can be added in `stack.py` as a `remote::openai` provider with its base URL; both were verified locally.
+
 ## Gotchas
 
 - The Llama Stack client is created with `max_retries=0` and a long timeout on purpose: an automatic retry duplicates the turn in the conversation.
@@ -56,6 +64,8 @@ State lives in SQLite through `Almacen` (`almacenamiento.py`): the phone-number-
 - The greeting returned when a message opens with one (`saludo_inicial`) is prepended in code, not by the model, and the prompt's brevity wording was picked by comparing variants against the real model: a stricter one made it stop listing the condominios and invent a price.
 - Questions the bot cannot answer get the fixed `MENSAJE_SIN_RESPUESTA` and the route `sin_informacion`: when every tool result is `SIN_COBERTURA` (no second model call; the result and the fixed reply are written to the conversation with `conversations.items.create`), or when the model's own reply is a refusal (`SIN_DATOS`, plus `NEGATIVA_SIN_CONSULTAR` when no tool was called). Do not ask for the fixed text in the system prompt: with that sentence the model also answered it when the tool had returned the data.
 - On macOS with the host's Ollama, replies of 15 s or more usually mean Ollama is evicting one model to load the other on every step (its log says "predicted to exceed available memory, evicting"): the two models need about 5 GB each and Docker Desktop reserves memory of its own.
+- A container keeps the environment it was created with: `docker compose restart`, and the restart loop of a failing container, do not re-read `.env`. A stale container looks like a bad credential (`ERR_NGROK_107` in the tunnel, `401 Unauthorized` from graph.facebook.com in the app); compare `docker inspect` with `.env` before blaming the token, and recreate with `docker compose up -d <service>`. On macOS set `COMPOSE_FILE` first, or recreating also starts the Ollama containers.
+- A `MODELO_CHAT` in `.env` that Ollama does not have stops the stack container in a restart loop ("Ollama no tiene el modelo"), and the app with it.
 - Blocked messages and fixed-rule replies never reach Llama Stack, so they are absent from the conversation history the model sees on later turns.
 - `stack.py` reads `OLLAMA_HOST`, `MODELO_CHAT` and `LLAMA_STACK_PORT` from the process environment only, not from `.env`, while the app reads `.env`; a `MODELO_CHAT` set only in `.env` leaves the stack registering the default model. It regenerates `data/llama_stack.yaml` from the starter distribution on every start, so edits to that file are lost.
 - On Linux `torch` resolves to the CPU-only build from the PyTorch index (`[tool.uv.sources]`), which keeps CUDA out of the Docker image; the embedding model and Prompt Guard run on CPU there.

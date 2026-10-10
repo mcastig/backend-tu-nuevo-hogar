@@ -146,12 +146,17 @@ These steps use the Ollama installed on your machine and run Llama Stack and the
 
 After changing code or `.env`, run step 5 again. To run Ollama in a container as well (CPU only on macOS, and about 10 GB of model downloads), skip steps 3 and 4.
 
+The bot only answers while this machine is on. For a demo, keep it plugged in and awake (on macOS, leave `caffeinate -d` running in a terminal). After a reboot, start Docker Desktop and Ollama, set `COMPOSE_FILE` (step 4) and run `docker compose --profile tunel up -d`.
+
 ### If something fails with Docker
 
 - **Replies take 15 seconds or more on macOS:** Ollama is unloading and reloading the two models on every step because there is not enough free memory for both (about 5 GB each). Lower Docker Desktop's memory (Settings → Resources; the containers use about 0.5 GB) and close other heavy apps. `ollama ps` shows which models are loaded.
 - **Every message gets the "problema técnico" reply and the app logs `llama_guard_no_disponible`:** Ollama is not running on the host. Start it with `ollama serve`; the containers do not need a restart.
 - **Replies got much slower after opening a new terminal:** `COMPOSE_FILE` (step 4) was not set there, so Compose started Ollama in a container, on CPU. Run `docker compose --profile tunel down`, set the variable and start again.
 - **The tunnel gives no URL:** check `NGROK_AUTHTOKEN` in `.env` (it must be the authtoken, not an API key); `docker compose logs tunel` shows ngrok's error.
+- **The tunnel keeps restarting with `ERR_NGROK_107` after you changed `NGROK_AUTHTOKEN`:** the container still has the old token, because a restart does not re-read `.env`. Recreate it with `docker compose --profile tunel up -d tunel`. The public URL may change, so check the Callback URL in Meta.
+- **Messages arrive but the bot never replies, and the app logs `whatsapp_api_error` with `401 Unauthorized`:** Meta rejected the access token. Either it expired (the temporary token from the Meta dashboard lasts about a day; use a system-user token, which does not expire), or `.env` has a new token or `PHONE_NUMBER_ID` and the container still has the old ones. Recreate it with `docker compose up -d`. The message that failed is not answered; send a new one.
+- **Llama Stack keeps restarting with "Ollama no tiene el modelo":** pull the model it names. If the name is not an Ollama model, check `MODELO_CHAT` in `.env`.
 - **A changed `.env` has no effect:** `docker compose restart` keeps the old values. Use `docker compose up -d`, which recreates the container.
 
 ### Run on a Linux server
@@ -164,6 +169,8 @@ docker compose -f compose.yaml -f compose.gpu.yaml up -d --build   # with NVIDIA
 ```
 
 For a permanent deployment, use an ngrok reserved domain, or replace the tunnel with a reverse proxy with TLS (Caddy, nginx) in front of port 8000, and use that URL as the Callback URL.
+
+The server needs a GPU for usable reply times, about 12 GB of video memory to keep both models loaded. Platforms without one, such as Render, cannot run Ollama at a usable speed, and their free tiers do not fit the rest either: the app alone uses about 1.1 GB of RAM and needs persistent storage.
 
 ### How Compose configures the app
 
