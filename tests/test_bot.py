@@ -179,6 +179,22 @@ def test_saludo_usa_regla_fija(entorno):
     assert entorno.llama.conversaciones_creadas == 0
 
 
+def test_emojis_no_llegan_al_modelo_como_pregunta(entorno):
+    for texto in ("Hola 👋", "👋", "👋🏽 buenas tardes!"):
+        assert entorno.agente.decidir_y_responder(NUMERO, texto) == "regla_saludo", texto
+    for texto in ("Gracias 🙏", "Adiós 👋😊", "hasta pronto ❤️"):
+        assert entorno.agente.decidir_y_responder(NUMERO, texto) == "regla_despedida", texto
+    for texto in ("👍", "😊🙏", "❤️", "👍🏽"):
+        assert entorno.agente.decidir_y_responder(NUMERO, texto) == "regla_emoji", texto
+    assert entorno.whatsapp.enviados[-1] == (NUMERO, modulo_agente.MENSAJE_EMOJI)
+    assert entorno.llama.conversaciones_creadas == 0
+    # Con una pregunta el mensaje llega al modelo tal como se escribio, y un signo solo no es un emoji
+    entorno.llama.llamada_pendiente = ("consultar_desarrollo", {"nombre": "Jacaranda"})
+    assert entorno.agente.decidir_y_responder(NUMERO, "Hola 👋 ¿cómo son las casas de Jacaranda? 🏠") == "llama"
+    assert entorno.whatsapp.enviados[-1][1].startswith("¡Hola! RESULTADO: ")
+    assert entorno.agente.decidir_y_responder(NUMERO, "?") == "llama"
+
+
 def test_saludo_con_pregunta_regresa_el_saludo(entorno):
     entorno.llama.llamada_pendiente = ("consultar_desarrollo", {"nombre": "Jacaranda"})
     assert entorno.agente.decidir_y_responder(NUMERO, "¡Hola! ¿Cómo son las casas de Jacaranda?") == "llama"
@@ -358,6 +374,9 @@ def test_webhook_ignora_estados_y_responde_a_no_texto(cliente, entorno):
     assert entorno.whatsapp.enviados == []
     publicar(cliente, webhook(tipo="image", wamid="wamid.2"))
     assert entorno.whatsapp.enviados == [(NUMERO, modulo_agente.MENSAJE_SOLO_TEXTO)]
+    # Una reaccion a un mensaje del bot no se contesta
+    publicar(cliente, webhook(tipo="reaction", wamid="wamid.3"))
+    assert len(entorno.whatsapp.enviados) == 1
 
 
 def test_metricas_requiere_token(cliente):

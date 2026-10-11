@@ -212,7 +212,7 @@ The webhook server reads these from `.env`. The Llama Stack launcher (`backend-t
 | --- | --- |
 | `llama` | Answered by the model |
 | `sin_informacion` | The fixed "No cuento con esa información…" message |
-| `regla_saludo`, `regla_despedida`, `regla_escalamiento` | A fixed rule answered (greeting, farewell, contact request) |
+| `regla_saludo`, `regla_despedida`, `regla_escalamiento`, `regla_emoji` | A fixed rule answered (greeting, farewell, contact request, a message of only emojis) |
 | `bloqueado_prompt_guard`, `bloqueado_llama_guard_entrada`, `bloqueado_llama_guard_salida` | Blocked by a safety check |
 | `error` | A step failed; the cause is counted separately |
 

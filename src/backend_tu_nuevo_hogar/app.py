@@ -84,7 +84,8 @@ def crear_app(config=None, agente=None):
                 continue  # Meta reenvio el mismo mensaje; ya se proceso, se ignora
             if mensaje.get("type") == "text":
                 background_tasks.add_task(agente.procesar_y_responder, numero, mensaje["text"]["body"])
-            else:
+            elif mensaje.get("type") != "reaction":
+                # Una reaccion a un mensaje del bot no espera respuesta
                 background_tasks.add_task(agente.responder_no_texto, numero)
         return {"status": "ok"}
 

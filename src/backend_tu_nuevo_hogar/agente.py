@@ -18,10 +18,11 @@ MENSAJE_BLOQUEO = "Lo siento, no puedo ayudar con ese mensaje. Si buscas casa, e
 MENSAJE_RESPUESTA_BLOQUEADA = "No puedo compartir esa respuesta. Un asesor se pondrá en contacto contigo."
 MENSAJE_ESCALAMIENTO = "Claro, en un momento un asesor te contacta directamente por este medio."
 MENSAJE_SALUDO = (
-    "Hola, soy el asistente de Tu Nuevo Hogar. Puedo informarte sobre nuestras casas, precios, "
+    "¡Hola! 👋 Soy el asistente de Tu Nuevo Hogar. Puedo informarte sobre nuestras casas, precios, "
     "créditos y el proceso de compra. ¿En qué puedo ayudarte?"
 )
-MENSAJE_DESPEDIDA = "Estamos a sus órdenes para cualquier duda futura. ¡Hasta pronto!"
+MENSAJE_DESPEDIDA = "Estamos a sus órdenes para cualquier duda futura. ¡Hasta pronto! 👋"
+MENSAJE_EMOJI = "😊 Aquí estoy para cualquier duda que tengas."
 MENSAJE_SOLO_TEXTO = "Por ahora solo puedo leer mensajes de texto. ¿Me escribes tu duda?"
 MENSAJE_SIN_RESPUESTA = (
     "No cuento con esa información; sin embargo, puedes hablar con alguno de nuestros asesores "
@@ -71,6 +72,9 @@ SALUDOS_DE_VUELTA = {
     "buenos dias": "¡Buenos días! ", "buenos días": "¡Buenos días! ", "buen dia": "¡Buenos días! ", "buen día": "¡Buenos días! ",
     "buenas tardes": "¡Buenas tardes! ", "buenas noches": "¡Buenas noches! ",
 }
+# Emojis y los caracteres que los componen (variantes, uniones, tonos de piel); las reglas fijas comparan sin ellos
+EMOJIS = re.compile("[\U0001F000-\U0001FAFF\u2190-\u21FF\u2300-\u23FF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D\u20E3]")
+EMOJIS_SALUDO = "👋🖐✋🤚"
 FRASES_SALUDO = ["hola", "buenas", "buenos dias", "buenos días", "buenas tardes", "buenas noches", "que tal", "buen dia", "buen día"]
 
 SYSTEM_PROMPT = (
@@ -127,6 +131,10 @@ def quitar_rastros_internos(texto):
     if len(limpias) == len(oraciones):
         return texto
     return " ".join(limpias) if len(" ".join(limpias).split()) >= 3 else ""
+
+
+def quitar_emojis(texto):
+    return " ".join(EMOJIS.sub(" ", texto).split())
 
 
 def es_solo_despedida(texto_low):
@@ -245,7 +253,7 @@ class Agente:
 
     def decidir_y_responder(self, numero, texto):
         # Regresa el nombre de la ruta que tomo el mensaje
-        texto_low = texto.lower()
+        texto_low = quitar_emojis(texto).lower()
 
         # 1. Seguridad sobre la entrada
         if self.prompt_guard is not None and self.prompt_guard.es_inyeccion(texto):
@@ -264,9 +272,14 @@ class Agente:
             self.almacen.registrar_solicitud_contacto(numero, texto)
             self.whatsapp.enviar(numero, MENSAJE_ESCALAMIENTO)
             return "regla_escalamiento"
-        if es_solo_saludo(texto_low):
+        solo_emojis = not texto_low and EMOJIS.search(texto) is not None
+        if es_solo_saludo(texto_low) or (solo_emojis and any(emoji in texto for emoji in EMOJIS_SALUDO)):
             self.whatsapp.enviar(numero, MENSAJE_SALUDO)
             return "regla_saludo"
+        if solo_emojis:
+            # Un emoji solo no es una pregunta: el modelo lo contestaria con el mensaje de "sin informacion"
+            self.whatsapp.enviar(numero, MENSAJE_EMOJI)
+            return "regla_emoji"
         if es_solo_despedida(texto_low):
             self.whatsapp.enviar(numero, MENSAJE_DESPEDIDA)
             return "regla_despedida"
