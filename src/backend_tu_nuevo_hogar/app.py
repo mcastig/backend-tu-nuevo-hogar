@@ -7,6 +7,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
 from backend_tu_nuevo_hogar.agente import Agente
+from backend_tu_nuevo_hogar.citas import ahora
 from backend_tu_nuevo_hogar.config import Configuracion
 from backend_tu_nuevo_hogar.whatsapp import ClienteWhatsApp, firma_valida, normalizar_numero_mx
 
@@ -93,15 +94,24 @@ def crear_app(config=None, agente=None):
     async def health(request: Request):
         return {"status": "ok", "prompt_guard": request.app.state.agente.prompt_guard is not None}
 
-    @app.get("/metricas")
-    async def metricas(request: Request):
+    def autorizar(request):
         admin_token = request.app.state.config.admin_token
         if not admin_token:
             raise HTTPException(status_code=404)
         recibido = request.headers.get("Authorization", "")
         if not hmac.compare_digest(recibido.encode(), f"Bearer {admin_token}".encode()):
             raise HTTPException(status_code=401)
+
+    @app.get("/metricas")
+    async def metricas(request: Request):
+        autorizar(request)
         return request.app.state.agente.almacen.resumen_metricas()
+
+    @app.get("/citas")
+    async def citas(request: Request):
+        # Las visitas agendadas de hoy en adelante, para el equipo de ventas
+        autorizar(request)
+        return request.app.state.agente.almacen.listar_citas(ahora().date().isoformat())
 
     return app
 

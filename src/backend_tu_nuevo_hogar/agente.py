@@ -9,6 +9,7 @@ import ollama
 from llama_stack_client import APIConnectionError, APIStatusError, APITimeoutError
 
 from backend_tu_nuevo_hogar.catalogo import HERRAMIENTA_DESARROLLO, quitar_acentos
+from backend_tu_nuevo_hogar.citas import Agendador
 from backend_tu_nuevo_hogar.conocimiento import HERRAMIENTA_INFORMACION, SIN_COBERTURA
 from backend_tu_nuevo_hogar.whatsapp import ErrorWhatsApp
 
@@ -33,7 +34,6 @@ MENSAJE_ERROR = "Estamos teniendo un problema técnico. Intenta de nuevo en un m
 FRASES_ESCALAMIENTO = [
     "hablar con alguien", "hablar con una persona", "hablar con un asesor", "hablar con una asesora",
     "agente humano", "asesor humano", "que me llamen", "que me contacten",
-    "agendar una visita", "agendar visita", "agendar una cita", "agendar cita",
 ]
 # Una despedida es un mensaje que trae al menos una de estas frases y nada mas que relleno alrededor
 # (se comparan sin acentos; "si" no es relleno porque "si, gracias" suele ser aceptar algo, no despedirse)
@@ -86,8 +86,9 @@ SYSTEM_PROMPT = (
     "creditos, mensualidades, promociones y demas informacion de la inmobiliaria). No uses ninguna herramienta para "
     "confirmaciones o respuestas cortas del usuario (como 'si, por favor' o 'gracias'). "
     "No puedes apartar casas, agendar visitas, autorizar creditos ni negociar precios o descuentos — solo puedes "
-    "consultar el catalogo y explicar la informacion oficial. Si el usuario quiere apartar, visitar o iniciar un "
-    "tramite, dile que escriba 'hablar con un asesor' para que un asesor lo contacte. "
+    "consultar el catalogo y explicar la informacion oficial. Si el usuario quiere apartar o iniciar un "
+    "tramite, dile que escriba 'hablar con un asesor' para que un asesor lo contacte; si quiere visitar las casas "
+    "o pedir una cita, dile que escriba 'agendar una visita'. "
     "No des asesoria legal, fiscal ni financiera personalizada, y nunca asegures que un credito sera aprobado. "
     "Para dudas de informacion responde unicamente con lo que diga el fragmento que regrese la herramienta. "
     "Si una herramienta no encuentra una respuesta, dilo honestamente en vez de inventar un dato. "
@@ -164,6 +165,7 @@ class Agente:
         self.llama_guard = llama_guard
         self.prompt_guard = prompt_guard  # None si no se pudo cargar
         self.whatsapp = whatsapp
+        self.agendador = Agendador(almacen)
         # Tras este tiempo sin mensajes se empieza una conversacion nueva: el historial crece con cada turno,
         # y al rebasar el contexto del modelo cada respuesta tarda mucho mas
         self.horas_conversacion = horas_conversacion
@@ -255,23 +257,32 @@ class Agente:
         # Regresa el nombre de la ruta que tomo el mensaje
         texto_low = quitar_emojis(texto).lower()
 
-        # 1. Seguridad sobre la entrada
-        if self.prompt_guard is not None and self.prompt_guard.es_inyeccion(texto):
-            self.almacen.registrar_bloqueo(numero, texto, "prompt_guard", "inyeccion de prompt")
-            self.whatsapp.enviar(numero, MENSAJE_BLOQUEO)
-            return "bloqueado_prompt_guard"
+        # 1. Seguridad sobre la entrada. La respuesta a un paso de la agenda de citas no se revisa: no llega a
+        # ningun modelo, solo se compara con las opciones ofrecidas, y Llama Guard bloquea un numero suelto ("13")
+        if not self.agendador.en_curso(numero):
+            if self.prompt_guard is not None and self.prompt_guard.es_inyeccion(texto):
+                self.almacen.registrar_bloqueo(numero, texto, "prompt_guard", "inyeccion de prompt")
+                self.whatsapp.enviar(numero, MENSAJE_BLOQUEO)
+                return "bloqueado_prompt_guard"
 
-        seguro, categoria = self.llama_guard.revisar([{"role": "user", "content": texto}])
-        if not seguro:
-            self.almacen.registrar_bloqueo(numero, texto, "llama_guard_entrada", categoria)
-            self.whatsapp.enviar(numero, MENSAJE_BLOQUEO)
-            return "bloqueado_llama_guard_entrada"
+            seguro, categoria = self.llama_guard.revisar([{"role": "user", "content": texto}])
+            if not seguro:
+                self.almacen.registrar_bloqueo(numero, texto, "llama_guard_entrada", categoria)
+                self.whatsapp.enviar(numero, MENSAJE_BLOQUEO)
+                return "bloqueado_llama_guard_entrada"
 
         # 2. Reglas fijas
         if any(frase in texto_low for frase in FRASES_ESCALAMIENTO):
             self.almacen.registrar_solicitud_contacto(numero, texto)
+            self.almacen.borrar_agenda(numero)
             self.whatsapp.enviar(numero, MENSAJE_ESCALAMIENTO)
             return "regla_escalamiento"
+        # Mientras se agenda una cita, lo que el usuario escribe es la respuesta al paso en curso
+        cita = self.agendador.atender(numero, quitar_emojis(texto))
+        if cita:
+            ruta, mensaje = cita
+            self.whatsapp.enviar(numero, mensaje)
+            return ruta
         solo_emojis = not texto_low and EMOJIS.search(texto) is not None
         if es_solo_saludo(texto_low) or (solo_emojis and any(emoji in texto for emoji in EMOJIS_SALUDO)):
             self.whatsapp.enviar(numero, MENSAJE_SALUDO)

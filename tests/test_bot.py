@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import sqlite3
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
 import numpy as np
@@ -9,10 +10,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend_tu_nuevo_hogar import agente as modulo_agente
+from backend_tu_nuevo_hogar import citas as modulo_citas
 from backend_tu_nuevo_hogar.agente import Agente
 from backend_tu_nuevo_hogar.almacenamiento import Almacen
 from backend_tu_nuevo_hogar.app import crear_app
 from backend_tu_nuevo_hogar.catalogo import Catalogo, cargar_desarrollos
+from backend_tu_nuevo_hogar.citas import Agendador
 from backend_tu_nuevo_hogar.conocimiento import (
     SIN_COBERTURA, BaseConocimiento, cargar_fragmentos, palabras_clave, quitar_relleno,
 )
@@ -220,9 +223,104 @@ def test_despedida_usa_regla_fija(entorno):
 
 def test_escalamiento_registra_solicitud(entorno):
     assert entorno.agente.decidir_y_responder(NUMERO, "Quiero hablar con un asesor") == "regla_escalamiento"
-    # Mensaje con el que llega un visitante desde el boton de WhatsApp del sitio
-    assert entorno.agente.decidir_y_responder(NUMERO, "Hola, me gustaría agendar una visita") == "regla_escalamiento"
+    assert entorno.agente.decidir_y_responder(NUMERO, "que me llamen por favor") == "regla_escalamiento"
     assert entorno.almacen.resumen_metricas()["solicitudes_contacto"] == 2
+
+
+# --- Citas ---
+
+@pytest.fixture
+def domingo(monkeypatch):
+    # Domingo 11 de octubre de 2026: se ofrecen del lunes 12 al miercoles 21, sin el domingo 18
+    hoy = datetime(2026, 10, 11, 9, 0, tzinfo=modulo_citas.ZONA)
+    monkeypatch.setattr(modulo_citas, "ahora", lambda: hoy)
+    return hoy.date()
+
+
+def test_dias_y_horas_que_se_ofrecen(entorno, domingo):
+    dias = Agendador(entorno.almacen).disponibles(domingo)
+    assert [fecha.day for fecha in dias] == [12, 13, 14, 15, 16, 17, 19, 20, 21]
+    assert dias[date(2026, 10, 12)] == list(range(10, 19))
+    assert dias[date(2026, 10, 17)] == [10, 11, 12, 13]  # sabado
+    # Los festivos no se ofrecen: 16 de septiembre y el tercer lunes de noviembre
+    assert modulo_citas.horas_de(date(2026, 9, 16)) == [] and modulo_citas.horas_de(date(2026, 11, 16)) == []
+
+
+def test_interpreta_dia_hora_y_nombre(domingo):
+    fechas = [domingo + timedelta(days=n) for n in range(1, 11) if n != 7]
+    for texto, dia in (("el 15", 15), ("lunes", 12), ("manana", 12), ("pasado manana", 13), ("el sabado 17 a las 11", 17)):
+        assert modulo_citas.interpretar_dia(texto, fechas, domingo).day == dia, texto
+    for texto in ("el 30", "domingo", "cualquiera"):
+        assert modulo_citas.interpretar_dia(texto, fechas, domingo) is None, texto
+    horas = list(range(10, 19))
+    for texto, hora in (("11", 11), ("a las 4", 16), ("4 pm", 16), ("16:00", 16), ("a las 10 de la manana", 10)):
+        assert modulo_citas.interpretar_hora(texto, horas) == hora, texto
+    for texto in ("a las 8", "11:30", "temprano"):
+        assert modulo_citas.interpretar_hora(texto, horas) is None, texto
+    assert modulo_citas.limpiar_nombre("me llamo María José O'Brien-López.") == "María José O'Brien-López"
+    for texto in ("yo", "¿cuánto cuesta?", "Juan 2"):
+        assert modulo_citas.limpiar_nombre(texto) is None, texto
+
+
+def test_agenda_una_visita_paso_a_paso(entorno, domingo):
+    agente = entorno.agente
+    # Mensaje con el que llega un visitante desde el boton de WhatsApp del sitio
+    assert agente.decidir_y_responder(NUMERO, "Hola, me gustaría agendar una visita") == "regla_cita"
+    assert "• lunes 12 de octubre" in entorno.whatsapp.enviados[-1][1] and "domingo" not in entorno.whatsapp.enviados[-1][1]
+    # Dentro de la agenda no se consulta a Llama Guard, que bloquea respuestas como un numero suelto
+    entorno.guard.inseguros.add("el viernes")
+    assert agente.decidir_y_responder(NUMERO, "el viernes") == "regla_cita"
+    assert "viernes 16 de octubre" in entorno.whatsapp.enviados[-1][1] and "18:00" in entorno.whatsapp.enviados[-1][1]
+    # Una respuesta que no es una hora repite las opciones, y se puede cambiar de dia
+    assert agente.decidir_y_responder(NUMERO, "a las 9") == "regla_cita"
+    assert entorno.whatsapp.enviados[-1][1].startswith(modulo_citas.MENSAJE_HORA_NO_ENTENDIDA)
+    assert agente.decidir_y_responder(NUMERO, "mejor el martes 13") == "regla_cita"
+    assert "martes 13 de octubre" in entorno.whatsapp.enviados[-1][1]
+    assert agente.decidir_y_responder(NUMERO, "a las 4 de la tarde 👍") == "regla_cita"
+    assert agente.decidir_y_responder(NUMERO, "Ana Pérez") == "cita_agendada"
+    assert "¡Listo, Ana Pérez! Tu visita quedó agendada para el martes 13 de octubre a las 16:00 h" in entorno.whatsapp.enviados[-1][1]
+    assert entorno.almacen.listar_citas("2026-10-11") == [
+        {"fecha": "2026-10-13", "hora": "16:00", "nombre": "Ana Pérez", "numero": NUMERO}
+    ]
+    assert entorno.llama.conversaciones_creadas == 0
+    # Terminada la agenda, los mensajes vuelven al flujo normal
+    assert agente.decidir_y_responder(NUMERO, "gracias") == "regla_despedida"
+
+
+def test_hora_agendada_no_se_ofrece_a_otro_numero(entorno, domingo):
+    agente, otro = entorno.agente, "525500000001"
+    for texto in ("quiero una cita", "el lunes a las 11", "Ana Pérez"):
+        agente.decidir_y_responder(NUMERO, texto)
+    agente.decidir_y_responder(otro, "agendar cita")
+    agente.decidir_y_responder(otro, "lunes")
+    assert "10:00, 12:00" in entorno.whatsapp.enviados[-1][1]
+    assert agente.decidir_y_responder(otro, "11") == "regla_cita"
+    assert entorno.whatsapp.enviados[-1][1].startswith(modulo_citas.MENSAJE_HORA_NO_ENTENDIDA)
+
+
+def test_reagendar_cancelar_y_salir(entorno, domingo):
+    agente = entorno.agente
+    for texto in ("quiero una cita", "el lunes a las 11", "Ana Pérez"):
+        agente.decidir_y_responder(NUMERO, texto)
+    # Agendar de nuevo avisa de la cita que ya existe y la reemplaza
+    agente.decidir_y_responder(NUMERO, "quiero cambiar mi cita")
+    assert entorno.whatsapp.enviados[-1][1].startswith("Ya tienes una visita agendada para el lunes 12 de octubre a las 11:00 h")
+    for texto in ("sabado", "a las 12", "Ana Pérez"):
+        agente.decidir_y_responder(NUMERO, texto)
+    assert [c["fecha"] for c in entorno.almacen.listar_citas("2026-10-11")] == ["2026-10-17"]
+    assert agente.decidir_y_responder(NUMERO, "necesito cancelar mi cita") == "cita_cancelada"
+    assert entorno.almacen.listar_citas("2026-10-11") == []
+    assert agente.decidir_y_responder(NUMERO, "cancelar mi visita") == "regla_cita"
+    assert entorno.whatsapp.enviados[-1][1] == modulo_citas.MENSAJE_SIN_CITA
+    # Se puede dejar la agenda a medias, y pedir un asesor tambien la deja
+    agente.decidir_y_responder(NUMERO, "agendar una visita")
+    assert agente.decidir_y_responder(NUMERO, "mejor no") == "regla_cita"
+    assert entorno.whatsapp.enviados[-1][1] == modulo_citas.MENSAJE_CITA_ABANDONADA
+    agente.decidir_y_responder(NUMERO, "agendar una visita")
+    assert agente.decidir_y_responder(NUMERO, "quiero hablar con un asesor") == "regla_escalamiento"
+    assert agente.decidir_y_responder(NUMERO, "lunes") == "llama"
+    # Preguntar por las citas no es pedir una
+    assert agente.decidir_y_responder(NUMERO, "¿Necesito cita para ver las casas?") == "llama"
 
 
 def test_entrada_insegura_se_bloquea_antes_de_llama(entorno):
@@ -384,4 +482,6 @@ def test_metricas_requiere_token(cliente):
     assert cliente.get("/metricas").status_code == 401
     r = cliente.get("/metricas", headers={"Authorization": "Bearer admin"})
     assert r.json()["volumen_por_ruta"] == {"regla_saludo": 1}
+    assert cliente.get("/citas").status_code == 401
+    assert cliente.get("/citas", headers={"Authorization": "Bearer admin"}).json() == []
     assert cliente.get("/health").json() == {"status": "ok", "prompt_guard": False}

@@ -10,7 +10,7 @@ All company data (condominios, prices, policies, staff) is invented. `INFO.md` i
 
 1. Meta calls `POST /webhook`. The signature is checked (when `WHATSAPP_APP_SECRET` is set), repeated message ids are dropped, and the work moves to a background task. Messages that are not text get a fixed "text only" reply.
 2. **Input safety:** Prompt Guard (prompt injection) and Llama Guard (unsafe content).
-3. **Fixed rules:** "hablar con un asesor" and similar phrases record a contact request; a bare greeting, and a bare farewell or thanks ("gracias", "hasta luego"), get a canned reply.
+3. **Fixed rules:** "hablar con un asesor" and similar phrases record a contact request; a bare greeting, and a bare farewell or thanks ("gracias", "hasta luego"), get a canned reply. "Agendar una visita" starts a step-by-step flow (day, hour, name) that books a visit to the sales office on an open day within the next 10 days; "cancelar mi cita" cancels it.
 4. **Llama 3.1 with tools:** `consultar_desarrollo` (catalog lookup) and `buscar_informacion` (RAG over the knowledge base).
 5. **Clean-up of the reply:** sentences that mention the bot's internals (tool names, JSON) are removed, and a greeting is returned when the user opened with one ("Hola, ¿cuánto cuesta…?" gets "¡Hola! …").
 6. **Output safety:** Llama Guard reviews the reply before it is sent.
@@ -204,6 +204,7 @@ The webhook server reads these from `.env`. The Llama Stack launcher (`backend-t
 | `GET /webhook` | Meta's verification handshake |
 | `POST /webhook` | Incoming messages |
 | `GET /health` | Reports whether Prompt Guard is loaded |
+| `GET /citas` | Visits booked through the bot, from today on (date, hour, name, phone number). Needs `ADMIN_TOKEN` |
 | `GET /metricas` | Message count per route, error rate and causes, average response time, and contact requests. Needs `ADMIN_TOKEN` |
 
 `/metricas` counts messages by route, the path each one took:
@@ -213,6 +214,7 @@ The webhook server reads these from `.env`. The Llama Stack launcher (`backend-t
 | `llama` | Answered by the model |
 | `sin_informacion` | The fixed "No cuento con esa información…" message |
 | `regla_saludo`, `regla_despedida`, `regla_escalamiento`, `regla_emoji` | A fixed rule answered (greeting, farewell, contact request, a message of only emojis) |
+| `regla_cita`, `cita_agendada`, `cita_cancelada` | A step of scheduling a visit, a visit booked, a visit cancelled |
 | `bloqueado_prompt_guard`, `bloqueado_llama_guard_entrada`, `bloqueado_llama_guard_salida` | Blocked by a safety check |
 | `error` | A step failed; the cause is counted separately |
 

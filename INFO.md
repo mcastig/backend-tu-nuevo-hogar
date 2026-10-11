@@ -419,6 +419,8 @@ El formulario no pide día ni hora; el equipo los confirma después por el medio
 - Tulipán y Cempasúchil no tienen casa muestra amueblada. Tulipán se presenta con planos y
   maqueta; en Cempasúchil se visita una casa terminada.
 - Para reagendar o cancelar basta avisar por WhatsApp o por teléfono.
+- Por WhatsApp el bot agenda la visita: basta escribir "agendar una visita" y elegir día y hora entre los
+  días hábiles de los próximos 10 días. Para cancelarla se escribe "cancelar mi cita".
 
 ---
 

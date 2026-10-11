@@ -37,6 +37,22 @@ CREATE TABLE IF NOT EXISTS bloqueos (
     detalle TEXT NOT NULL,
     creado TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS agendas (
+    numero TEXT PRIMARY KEY,
+    paso TEXT NOT NULL,
+    fecha TEXT,
+    hora INTEGER,
+    actualizado TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS citas (
+    id INTEGER PRIMARY KEY,
+    numero TEXT NOT NULL,
+    nombre TEXT NOT NULL,
+    fecha TEXT NOT NULL,
+    hora INTEGER NOT NULL,
+    creado TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (fecha, hora)
+);
 CREATE TABLE IF NOT EXISTS solicitudes_contacto (
     id INTEGER PRIMARY KEY,
     numero TEXT NOT NULL,
@@ -116,6 +132,64 @@ class Almacen:
     def registrar_solicitud_contacto(self, numero, texto):
         with self._conexion() as con:
             con.execute("INSERT INTO solicitudes_contacto (numero, texto) VALUES (?, ?)", (numero, texto))
+
+    def obtener_agenda(self, numero, minutos_vigencia):
+        # La cita que el usuario esta agendando: (paso, fecha, hora), o None si no hay o ya la abandono
+        with self._conexion() as con:
+            return con.execute(
+                "SELECT paso, fecha, hora FROM agendas WHERE numero = ? AND actualizado >= datetime('now', ?)",
+                (numero, f"-{minutos_vigencia} minutes"),
+            ).fetchone()
+
+    def guardar_agenda(self, numero, paso, fecha, hora):
+        with self._conexion() as con:
+            con.execute(
+                "INSERT OR REPLACE INTO agendas (numero, paso, fecha, hora) VALUES (?, ?, ?, ?)",
+                (numero, paso, fecha, hora),
+            )
+
+    def borrar_agenda(self, numero):
+        with self._conexion() as con:
+            con.execute("DELETE FROM agendas WHERE numero = ?", (numero,))
+
+    def horas_ocupadas(self, desde, hasta):
+        with self._conexion() as con:
+            return set(con.execute("SELECT fecha, hora FROM citas WHERE fecha BETWEEN ? AND ?", (desde, hasta)))
+
+    def cita_vigente(self, numero, hoy):
+        with self._conexion() as con:
+            return con.execute(
+                "SELECT fecha, hora FROM citas WHERE numero = ? AND fecha >= ? ORDER BY fecha, hora", (numero, hoy)
+            ).fetchone()
+
+    def guardar_cita(self, numero, nombre, fecha, hora, hoy):
+        # Reemplaza la cita vigente del numero; regresa False, sin cambiar nada, si otra persona ya tiene esa hora
+        try:
+            with self._conexion() as con:
+                con.execute("DELETE FROM citas WHERE numero = ? AND fecha >= ?", (numero, hoy))
+                con.execute(
+                    "INSERT INTO citas (numero, nombre, fecha, hora) VALUES (?, ?, ?, ?)", (numero, nombre, fecha, hora)
+                )
+        except sqlite3.IntegrityError:
+            return False
+        return True
+
+    def cancelar_cita(self, numero, hoy):
+        # Regresa la (fecha, hora) de la cita que cancelo, o None si el numero no tenia ninguna vigente
+        with self._conexion() as con:
+            cita = con.execute(
+                "SELECT fecha, hora FROM citas WHERE numero = ? AND fecha >= ? ORDER BY fecha, hora", (numero, hoy)
+            ).fetchone()
+            if cita:
+                con.execute("DELETE FROM citas WHERE numero = ? AND fecha >= ?", (numero, hoy))
+        return cita
+
+    def listar_citas(self, desde):
+        with self._conexion() as con:
+            filas = con.execute(
+                "SELECT fecha, hora, nombre, numero FROM citas WHERE fecha >= ? ORDER BY fecha, hora", (desde,)
+            ).fetchall()
+        return [{"fecha": f, "hora": f"{h}:00", "nombre": n, "numero": t} for f, h, n, t in filas]
 
     def resumen_metricas(self):
         with self._conexion() as con:
