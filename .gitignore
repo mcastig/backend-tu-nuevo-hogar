@@ -15,6 +15,4 @@ data/
 
 # Just local information, not needed for the project
 *.log
-DEMO.md
-INFO.md
 
