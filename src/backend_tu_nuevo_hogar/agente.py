@@ -29,6 +29,8 @@ MENSAJE_SIN_RESPUESTA = (
     "No cuento con esa información; sin embargo, puedes hablar con alguno de nuestros asesores "
     "para cualquier otra duda que tengas."
 )
+MENSAJE_PIDE_ASESOR = "Para eso te atiende uno de nuestros asesores: escribe 'hablar con un asesor' y te contactamos por este medio."
+MENSAJE_PIDE_CITA = "Con gusto agendamos tu visita: escribe 'agendar una visita' y elige el día y la hora."
 MENSAJE_ERROR = "Estamos teniendo un problema técnico. Intenta de nuevo en un momento."
 
 FRASES_ESCALAMIENTO = [
@@ -103,6 +105,9 @@ RESULTADO_EN_MENSAJE = (
 )
 
 HERRAMIENTAS = [HERRAMIENTA_DESARROLLO, HERRAMIENTA_INFORMACION]
+# El prompt le pide al modelo decirle al usuario que escriba estas frases, y a veces las pide como si fueran
+# herramientas; en ese caso se contesta la indicacion que tenia que dar
+FRASES_COMO_HERRAMIENTA = {"hablar con un asesor": MENSAJE_PIDE_ASESOR, "agendar una visita": MENSAJE_PIDE_CITA}
 
 
 class HerramientaDesconocida(Exception):
@@ -123,6 +128,12 @@ def extraer_llamada_en_texto(texto):
             argumentos = datos.get("parameters", datos.get("arguments"))
             return datos["name"], argumentos if isinstance(argumentos, dict) else {}
     return None
+
+
+def indicacion_por_frase(nombre):
+    # Regresa la indicacion que corresponde a una frase pedida como herramienta, o None si el nombre es otra cosa
+    parecidas = difflib.get_close_matches(nombre.lower().replace("_", " "), FRASES_COMO_HERRAMIENTA, n=1, cutoff=0.8)
+    return FRASES_COMO_HERRAMIENTA[parecidas[0]] if parecidas else None
 
 
 def quitar_rastros_internos(texto):
@@ -204,7 +215,18 @@ class Agente:
             resultados = []
             for llamada in llamadas_funcion:
                 if llamada.name not in self.funciones:
-                    raise HerramientaDesconocida(llamada.name)
+                    indicacion = indicacion_por_frase(llamada.name)
+                    if indicacion is None:
+                        raise HerramientaDesconocida(llamada.name)
+                    # Se cierran las llamadas en la conversacion, para que el siguiente turno no las encuentre sin resultado
+                    self.cliente.conversations.items.create(
+                        conversation_id,
+                        items=[
+                            *({"type": "function_call_output", "call_id": pedida.call_id, "output": indicacion} for pedida in llamadas_funcion),
+                            {"type": "message", "role": "assistant", "content": indicacion},
+                        ],
+                    )
+                    return indicacion
                 argumentos = json.loads(llamada.arguments or "{}")
                 resultados.append({
                     "type": "function_call_output",
@@ -231,7 +253,13 @@ class Agente:
             # El nombre suele venir casi bien ("consulta_desarrollo"); se acepta el mas parecido
             parecidos = difflib.get_close_matches(nombre, self.funciones, n=1, cutoff=0.8)
             if not parecidos:
-                raise HerramientaDesconocida(nombre)
+                indicacion = indicacion_por_frase(nombre)
+                if indicacion is None:
+                    raise HerramientaDesconocida(nombre)
+                self.cliente.conversations.items.create(
+                    conversation_id, items=[{"type": "message", "role": "assistant", "content": indicacion}]
+                )
+                return indicacion
             logger.warning("El modelo escribio la llamada a %s como texto; se ejecuta %s.", nombre, parecidos[0])
             # No hay call_id al cual responder, asi que el resultado se manda como un mensaje mas
             respuesta = self.cliente.responses.create(

@@ -441,6 +441,21 @@ def test_herramienta_desconocida_se_registra_y_avisa(entorno):
     assert entorno.whatsapp.enviados == [(NUMERO, modulo_agente.MENSAJE_ERROR)]
 
 
+def test_frase_pedida_como_herramienta_se_contesta_con_la_indicacion(entorno):
+    # El modelo pide como herramienta la frase que debia decirle al usuario que escribiera
+    entorno.llama.llamada_pendiente = ("hablar con un asesor", {})
+    assert entorno.agente.decidir_y_responder(NUMERO, "Quiero apartar una casa en Jacaranda") == "llama"
+    assert entorno.whatsapp.enviados[-1] == (NUMERO, modulo_agente.MENSAJE_PIDE_ASESOR)
+    assert entorno.llama.items_agregados[-2:] == [
+        {"type": "function_call_output", "call_id": "c1", "output": modulo_agente.MENSAJE_PIDE_ASESOR},
+        {"type": "message", "role": "assistant", "content": modulo_agente.MENSAJE_PIDE_ASESOR},
+    ]
+    entorno.llama.llamada_pendiente = None
+    entorno.llama.textos_pendientes = ['{"name": "agendar_una_visita", "parameters": {}}']
+    assert entorno.agente.decidir_y_responder(NUMERO, "y cómo le hago para conocerlas") == "llama"
+    assert entorno.whatsapp.enviados[-1] == (NUMERO, modulo_agente.MENSAJE_PIDE_CITA)
+
+
 def test_fallo_de_whatsapp_se_registra_sin_propagar(entorno):
     entorno.whatsapp.fallar = True
     entorno.agente.procesar_y_responder(NUMERO, "hola")
