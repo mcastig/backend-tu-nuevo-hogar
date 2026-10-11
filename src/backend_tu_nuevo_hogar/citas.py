@@ -23,7 +23,10 @@ MESES = [
 # es una pregunta para el modelo, por eso se exige un verbo de agendar
 FRASES_CITA = re.compile(
     r"\b(agendar|agendarme|agendame|agendo|reagendar|reservar|programar|sacar|hacer|pedir|cambiar|mover|"
-    r"quiero|quisiera)\b (una |un |la |mi )?(visita|cita|recorrido)\b|\b(quiero|quisiera|gustaria) (ir a )?visitar"
+    r"quiero|quisiera)\b (una |un |la |mi )?(visita|cita|recorrido)\b|\b(quiero|quisiera|gustaria) (ir a )?visitar|"
+    # Preguntar si se puede ir cierto dia tambien se contesta con los dias y horas libres; el modelo se equivoca
+    # con el horario ("el sabado esta cerrado")
+    r"\b(ir|pasar|acudir) a (ver|conocer|visitar)\b|\bpuedo (ir|pasar|visitarlos) (el|este|manana|pasado|hoy)\b"
 )
 FRASES_CANCELAR_CITA = re.compile(r"\b(cancelar|cancela|cancelo|cancelen|cancelame)\b.*\b(cita|visita|recorrido)\b")
 FRASES_SALIR = re.compile(r"\b(salir|cancelar|cancela|cancelalo|olvidalo|ya no|mejor no)\b")
@@ -145,7 +148,7 @@ class Agendador:
             if FRASES_CANCELAR_CITA.search(texto_low):
                 return self._cancelar(numero, hoy)
             if FRASES_CITA.search(texto_low):
-                return self._empezar(numero, hoy)
+                return self._empezar(numero, texto_low, hoy)
             return None
         if FRASES_SALIR.search(texto_low):
             self.almacen.borrar_agenda(numero)
@@ -180,14 +183,19 @@ class Agendador:
         self.almacen.guardar_agenda(numero, "hora", fecha.isoformat(), None)
         return "regla_cita", self._texto_horas(fecha, dias[fecha])
 
-    def _empezar(self, numero, hoy):
+    def _empezar(self, numero, texto_low, hoy):
         dias = self.disponibles(hoy)
         if not dias:
             return "regla_cita", MENSAJE_SIN_DISPONIBILIDAD
         self.almacen.guardar_agenda(numero, "dia", None, None)
         cita = self.almacen.cita_vigente(numero, hoy.isoformat())
         aviso = MENSAJE_YA_TIENES_CITA.format(nombre_dia(date.fromisoformat(cita[0])), cita[1]) if cita else ""
-        return "regla_cita", aviso + self._texto_dias(dias)
+        # "¿Puedo ir el sabado?" ya trae el dia: se pasa directo a sus horas
+        fecha = interpretar_dia(texto_low, list(dias), hoy) if NOMBRA_UN_DIA.search(texto_low) else None
+        if fecha is None:
+            return "regla_cita", aviso + self._texto_dias(dias)
+        self.almacen.guardar_agenda(numero, "hora", fecha.isoformat(), None)
+        return "regla_cita", aviso + self._texto_horas(fecha, dias[fecha])
 
     def _pedir_nombre(self, numero, fecha, hora):
         self.almacen.guardar_agenda(numero, "nombre", fecha.isoformat(), hora)

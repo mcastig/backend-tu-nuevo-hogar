@@ -319,6 +319,10 @@ def test_reagendar_cancelar_y_salir(entorno, domingo):
     agente.decidir_y_responder(NUMERO, "agendar una visita")
     assert agente.decidir_y_responder(NUMERO, "quiero hablar con un asesor") == "regla_escalamiento"
     assert agente.decidir_y_responder(NUMERO, "lunes") == "llama"
+    # Preguntar si se puede ir cierto dia pasa directo a las horas de ese dia
+    assert agente.decidir_y_responder(NUMERO, "¿Puedo ir a ver las casas el sábado?") == "regla_cita"
+    assert entorno.whatsapp.enviados[-1][1].startswith("Para el sábado 17 de octubre tengo estos horarios:\n10:00, 11:00, 12:00, 13:00")
+    agente.decidir_y_responder(NUMERO, "salir")
     # Preguntar por las citas no es pedir una
     assert agente.decidir_y_responder(NUMERO, "¿Necesito cita para ver las casas?") == "llama"
 
