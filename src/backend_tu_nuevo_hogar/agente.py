@@ -147,13 +147,18 @@ def saludo_inicial(texto_low):
 
 
 class Agente:
-    def __init__(self, cliente, modelo, almacen, conocimiento, catalogo, llama_guard, prompt_guard, whatsapp):
+    def __init__(
+        self, cliente, modelo, almacen, conocimiento, catalogo, llama_guard, prompt_guard, whatsapp, horas_conversacion
+    ):
         self.cliente = cliente  # LlamaStackClient
         self.modelo = modelo
         self.almacen = almacen
         self.llama_guard = llama_guard
         self.prompt_guard = prompt_guard  # None si no se pudo cargar
         self.whatsapp = whatsapp
+        # Tras este tiempo sin mensajes se empieza una conversacion nueva: el historial crece con cada turno,
+        # y al rebasar el contexto del modelo cada respuesta tarda mucho mas
+        self.horas_conversacion = horas_conversacion
         self.funciones = {
             "consultar_desarrollo": lambda args: catalogo.consultar(args.get("nombre")),
             "buscar_informacion": lambda args: conocimiento.buscar(args.get("pregunta", "")),
@@ -168,7 +173,7 @@ class Agente:
             return self._locks.setdefault(numero, threading.Lock())
 
     def obtener_conversacion(self, numero):
-        conversation_id = self.almacen.obtener_conversacion(numero)
+        conversation_id = self.almacen.obtener_conversacion(numero, self.horas_conversacion)
         if conversation_id is None:
             conversation_id = self.cliente.conversations.create().id
             self.almacen.guardar_conversacion(numero, conversation_id)

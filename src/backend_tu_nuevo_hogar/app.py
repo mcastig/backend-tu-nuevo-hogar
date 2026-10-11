@@ -34,6 +34,7 @@ def construir_agente(config):
         llama_guard=LlamaGuard(ollama.Client(host=config.ollama_host), config.modelo_guard),
         prompt_guard=cargar_prompt_guard(config.prompt_guard_modelo, config.hf_token),
         whatsapp=ClienteWhatsApp(config.whatsapp_access_token, config.phone_number_id, config.graph_api_version),
+        horas_conversacion=config.horas_conversacion,
     )
 
 

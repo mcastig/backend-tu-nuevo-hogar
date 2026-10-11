@@ -6,7 +6,8 @@ ESQUEMA = """
 CREATE TABLE IF NOT EXISTS conversaciones (
     numero TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
-    creado TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    creado TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    usado TEXT
 );
 CREATE TABLE IF NOT EXISTS mensajes_procesados (
     wamid TEXT PRIMARY KEY,
@@ -54,6 +55,9 @@ class Almacen:
         with self._conexion() as con:
             con.execute("PRAGMA journal_mode=WAL")
             con.executescript(ESQUEMA)
+            # Las bases creadas antes de la caducidad de conversaciones no tienen la columna
+            if "usado" not in {columna[1] for columna in con.execute("PRAGMA table_info(conversaciones)")}:
+                con.execute("ALTER TABLE conversaciones ADD COLUMN usado TEXT")
 
     @contextmanager
     def _conexion(self):
@@ -70,9 +74,16 @@ class Almacen:
             cursor = con.execute("INSERT OR IGNORE INTO mensajes_procesados (wamid) VALUES (?)", (wamid,))
             return cursor.rowcount == 1
 
-    def obtener_conversacion(self, numero):
+    def obtener_conversacion(self, numero, horas_vigencia):
+        # Regresa None si la conversacion lleva mas de horas_vigencia sin usarse; si sigue vigente, renueva su uso
         with self._conexion() as con:
-            fila = con.execute("SELECT conversation_id FROM conversaciones WHERE numero = ?", (numero,)).fetchone()
+            fila = con.execute(
+                "SELECT conversation_id FROM conversaciones"
+                " WHERE numero = ? AND COALESCE(usado, creado) >= datetime('now', ?)",
+                (numero, f"-{horas_vigencia} hours"),
+            ).fetchone()
+            if fila:
+                con.execute("UPDATE conversaciones SET usado = CURRENT_TIMESTAMP WHERE numero = ?", (numero,))
         return fila[0] if fila else None
 
     def guardar_conversacion(self, numero, conversation_id):

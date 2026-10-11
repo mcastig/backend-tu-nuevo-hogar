@@ -22,6 +22,7 @@ class Configuracion(BaseSettings):
     prompt_guard_modelo: str = "meta-llama/Llama-Prompt-Guard-2-86M"
     hf_token: str | None = None  # sin token no se carga Prompt Guard (repositorio restringido)
     umbral_conocimiento: float = 0.30  # similitud minima para considerar que la base cubre la pregunta
+    horas_conversacion: float = 3  # horas sin mensajes tras las que se empieza una conversacion nueva
 
     # Servidor
     database_path: Path = Path("data/bot.sqlite3")

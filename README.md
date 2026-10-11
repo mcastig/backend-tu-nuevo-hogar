@@ -191,6 +191,7 @@ State lives in four volumes: `datos` (the SQLite file), `llama-stack` (the conve
 | `LLAMA_STACK_URL`, `OLLAMA_HOST`, `DATABASE_PATH`, `HOST`, `PORT` | no | Defaults: `http://localhost:8321`, `http://localhost:11434`, `data/bot.sqlite3`, `0.0.0.0`, `8000` |
 | `MODELO_CHAT`, `MODELO_GUARD`, `MODELO_EMBEDDINGS` | no | Defaults: `ollama/llama3.1:8b`, `llama-guard3`, `paraphrase-multilingual-MiniLM-L12-v2` |
 | `UMBRAL_CONOCIMIENTO` | no | Minimum similarity for a knowledge fragment to count as an answer. Default `0.30` |
+| `HORAS_CONVERSACION` | no | Hours without messages after which a number starts a new conversation, so the history stays within the model's context. Default `3` |
 | `NGROK_AUTHTOKEN` | Docker tunnel only | ngrok authtoken for the `tunel` Compose profile |
 | `PUERTO_APP` | no | Docker only: host port the app is published on. Default `8000` |
 

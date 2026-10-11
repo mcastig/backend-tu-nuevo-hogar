@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import sqlite3
 from types import SimpleNamespace
 
 import numpy as np
@@ -98,6 +99,7 @@ def entorno(tmp_path):
         llama_guard=e.guard,
         prompt_guard=None,
         whatsapp=e.whatsapp,
+        horas_conversacion=3,
     )
     return e
 
@@ -231,6 +233,29 @@ def test_llama_ejecuta_herramienta_y_reutiliza_conversacion(entorno):
     assert "Precio desde $1,190,000 MXN" in entorno.whatsapp.enviados[-1][1]
     entorno.agente.decidir_y_responder(NUMERO, "¿y en Tulipán?")
     assert entorno.llama.conversaciones_creadas == 1
+
+
+def test_conversacion_inactiva_se_reemplaza(entorno):
+    entorno.agente.decidir_y_responder(NUMERO, "¿Cómo son las casas de Jacaranda?")
+    with sqlite3.connect(entorno.almacen.ruta) as con:
+        con.execute("UPDATE conversaciones SET usado = datetime('now', '-4 hours')")
+    entorno.agente.decidir_y_responder(NUMERO, "¿y en Tulipán?")
+    entorno.agente.decidir_y_responder(NUMERO, "¿y en Bugambilia?")
+    assert entorno.llama.conversaciones_creadas == 2
+
+
+def test_base_anterior_recibe_la_columna_de_uso(tmp_path):
+    ruta = tmp_path / "vieja.sqlite3"
+    with sqlite3.connect(ruta) as con:
+        con.execute(
+            "CREATE TABLE conversaciones (numero TEXT PRIMARY KEY, conversation_id TEXT NOT NULL,"
+            " creado TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        )
+        con.execute("INSERT INTO conversaciones VALUES (?, 'conv_reciente', datetime('now'))", (NUMERO,))
+        con.execute("INSERT INTO conversaciones VALUES ('525500000001', 'conv_vieja', datetime('now', '-5 days'))")
+    almacen = Almacen(ruta)
+    assert almacen.obtener_conversacion(NUMERO, 3) == "conv_reciente"
+    assert almacen.obtener_conversacion("525500000001", 3) is None
 
 
 def test_llamada_escrita_como_texto_se_ejecuta(entorno):

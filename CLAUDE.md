@@ -44,7 +44,7 @@ Tests live in one file, `tests/test_bot.py`. The `entorno` fixture gives an `Age
 
 The unit tests say nothing about how `llama3.1:8b` behaves. To check a prompt, tool-output or retrieval change against the real model without sending WhatsApp messages, run a script inside the app container (`docker exec -e DATABASE_PATH=/tmp/prueba.sqlite3 tu-nuevo-hogar-app-1 python …`) that builds the agent with `construir_agente(Configuracion())`, replaces `agente.whatsapp` with an object whose `enviar` prints, and calls `decidir_y_responder` with a different phone number per question, so each gets a fresh conversation. The model varies from run to run: repeat each question several times and compare against the current behaviour before keeping a change.
 
-State lives in SQLite through `Almacen` (`almacenamiento.py`): the phone-number-to-conversation mapping, processed message ids (webhook dedupe), metrics, errors, blocks and contact requests. The conversation history itself is stored by Llama Stack.
+State lives in SQLite through `Almacen` (`almacenamiento.py`): the phone-number-to-conversation mapping, processed message ids (webhook dedupe), metrics, errors, blocks and contact requests. The conversation history itself is stored by Llama Stack. A number's conversation is replaced by a new one after `HORAS_CONVERSACION` (default 3) without a message that reaches the model: Ollama runs the model with a 4,096-token context, and once the history exceeds it every model call reprocesses a full context (about 19 s each on the author's Mac, two calls per message). The old conversation stays in Llama Stack, unreferenced.
 
 ## Deployment
 
